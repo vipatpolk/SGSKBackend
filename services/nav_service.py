@@ -3,8 +3,8 @@ import asyncio
 from datetime import datetime, timedelta
 import urllib.parse
 
+from typing import Optional, List, Dict
 from models.transaction import PriceData
-from typing import Optional
 
 SEC_API_CONFIG = {
     'subscriptionKey': '5544171ad4944dde9454d20054233891',
@@ -19,7 +19,7 @@ class NavService:
         }
         self.client = httpx.AsyncClient(headers=self.headers)
 
-    async def fetch_fund_navs(self, symbols: list[str]) -> dict[str, PriceData]:
+    async def fetch_fund_navs(self, symbols: List[str]) -> Dict[str, PriceData]:
         unique_symbols = list(set(symbols))
         if not unique_symbols:
             return {}
