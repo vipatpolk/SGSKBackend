@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import urllib.parse
 
 from models.transaction import PriceData
+from typing import Optional
 
 SEC_API_CONFIG = {
     'subscriptionKey': '5544171ad4944dde9454d20054233891',
@@ -53,7 +54,7 @@ class NavService:
 
         return await self.fetch_fund_nav_data(symbol, clean_symbol, sym_upper, fund)
 
-    async def fetch_fund_profile(self, clean_symbol: str, sym_upper: str) -> dict | None:
+    async def fetch_fund_profile(self, clean_symbol: str, sym_upper: str) -> Optional[dict]:
         try:
             url1 = f"{SEC_API_CONFIG['baseUrl']}/general-info/profiles?fund_class_name={urllib.parse.quote(clean_symbol)}"
             res = await self.client.get(url1)

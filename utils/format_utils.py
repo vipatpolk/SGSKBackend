@@ -1,4 +1,6 @@
-def normalize_asset_type(raw_type: str) -> str | None:
+from typing import Optional
+
+def normalize_asset_type(raw_type: str) -> Optional[str]:
     if not raw_type:
         return None
     normalized = raw_type.strip().lower()
