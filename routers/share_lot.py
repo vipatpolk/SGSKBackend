@@ -5,9 +5,9 @@ from models.transaction import SheetResult
 router = APIRouter(prefix="/share-lot", tags=["share-lot"])
 service = ShareLotService()
 
-@router.get("/sheet/{gid}", response_model=SheetResult)
-async def fetch_sheet(gid: str):
-    return await service.fetch_sheet(gid)
+@router.get("/sheet/{tab_id}", response_model=SheetResult)
+async def fetch_sheet(tab_id: str):
+    return await service.fetch_sheet(tab_id)
 
 @router.get("/sheets", response_model=SheetResult)
 async def fetch_all_sheets():

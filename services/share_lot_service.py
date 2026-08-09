@@ -15,11 +15,14 @@ class ShareLotService:
     def __init__(self):
         self.client = httpx.AsyncClient(follow_redirects=True)
 
-    async def fetch_sheet(self, gid: str) -> SheetResult:
-        url = get_sheet_export_url(gid)
-        tab = next((t for t in ASSET_TABS if t['sheetGid'] == gid), None)
-        is_closed = tab is not None and tab['id'] == 'closed-position'
-        asset_type = tab['id'] if tab else 'unknown'
+    async def fetch_sheet(self, tab_id: str) -> SheetResult:
+        tab = next((t for t in ASSET_TABS if t['id'] == tab_id), None)
+        if not tab or not tab['sheetGid']:
+            return self.create_empty_result(f"Invalid tab id: {tab_id}", False)
+            
+        url = get_sheet_export_url(tab['sheetGid'])
+        is_closed = tab['id'] == 'closed-position'
+        asset_type = tab['id']
 
         try:
             res = await self.client.get(url)
