@@ -1,6 +1,6 @@
 import httpx
 import asyncio
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple, Optional
 import urllib.parse
 from models.transaction import PriceData
 from services.nav_service import NavService
