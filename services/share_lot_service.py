@@ -143,7 +143,8 @@ class ShareLotService:
             date = row[date_idx].strip() if len(row) > date_idx else ''
             
             try:
-                quantity = float(row[qty_idx].strip())
+                qty_str = row[qty_idx].strip().replace(',', '')
+                quantity = float(qty_str)
                 price_str = row[price_idx].strip().replace(',', '')
                 price = float(price_str)
             except ValueError:
