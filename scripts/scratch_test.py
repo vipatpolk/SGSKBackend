@@ -1,7 +1,7 @@
 import asyncio
 import httpx
 
-async def test():
+async def main():
     async with httpx.AsyncClient(follow_redirects=True) as client:
         res = await client.get('https://query1.finance.yahoo.com/v8/finance/chart/AAPL?range=1d&interval=1d&includePrePost=false')
         print(res.status_code)
@@ -12,4 +12,4 @@ async def test():
         else:
             print(res.text)
 
-asyncio.run(test())
+asyncio.run(main())
