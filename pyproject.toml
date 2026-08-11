@@ -1,3 +1,16 @@
+[project]
+name = "sgsk-backend"
+version = "0.1.0"
+description = "SGSK Backend Service"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "httpx",
+    "pydantic",
+]
+
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
