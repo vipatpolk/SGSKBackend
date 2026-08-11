@@ -1,19 +1,22 @@
 import pytest
-from services.nav_service import NavService
+
 from models.transaction import PriceData
+from services.nav_service import NavService
+
 
 @pytest.fixture
 def service():
     return NavService()
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_fetch_fund_navs_empty(service):
     res = await service.fetch_fund_navs([])
     assert res == {}
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_fetch_single_fund_nav_not_found(service, monkeypatch):
-    # Mock fetch_fund_profile returning None (fund not found)
     async def mock_fetch_fund_profile(clean_symbol: str, sym_upper: str):
         return None
 
@@ -24,9 +27,9 @@ async def test_fetch_single_fund_nav_not_found(service, monkeypatch):
     assert res["data"].price == 0.0
     assert res["data"].currency == "THB"
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_fetch_single_fund_nav_success(service, monkeypatch):
-    # Mock profile lookup
     async def mock_fetch_fund_profile(clean_symbol: str, sym_upper: str):
         return {
             "proj_id": "M0123_2560",
@@ -34,7 +37,6 @@ async def test_fetch_single_fund_nav_success(service, monkeypatch):
             "fund_class_name": "main"
         }
 
-    # Mock NAV data lookup
     async def mock_fetch_fund_nav_data(symbol: str, clean_symbol: str, sym_upper: str, fund: dict):
         return {
             "originalSymbol": symbol,

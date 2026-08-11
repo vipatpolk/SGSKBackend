@@ -1,0 +1,18 @@
+{
+  "chart": {
+    "result": [
+      {
+        "meta": {
+          "currency": "USD",
+          "symbol": "AAPL",
+          "shortName": "Apple Inc.",
+          "longName": "Apple Inc.",
+          "regularMarketPrice": 185.50,
+          "chartPreviousClose": 185.50,
+          "previousClose": 185.50
+        }
+      }
+    ],
+    "error": null
+  }
+}

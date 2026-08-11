@@ -1,5 +1,7 @@
 import asyncio
+
 from services.share_lot_service import ShareLotService
+
 
 async def main():
     service = ShareLotService()

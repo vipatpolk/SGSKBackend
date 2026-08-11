@@ -1,5 +1,7 @@
-from services.nav_service import NavService
 import asyncio
+
+from services.nav_service import NavService
+
 
 async def test():
     ns = NavService()

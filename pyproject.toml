@@ -1,0 +1,33 @@
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "unit: Unit tests for core domain logic",
+    "e2e: End-to-end API HTTP tests using mocked external services",
+    "live_e2e: Live API integration tests against real third-party services",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = ["E501", "E701"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["routers", "services", "models", "utils", "config"]
+omit = ["tests/*", ".venv/*"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true

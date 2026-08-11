@@ -1,5 +1,6 @@
+
 from pydantic import BaseModel
-from typing import List, Optional, Dict
+
 
 class Transaction(BaseModel):
     symbol: str
@@ -37,7 +38,7 @@ class SymbolSummary(BaseModel):
     totalCost: float
     averageCost: float
     currency: str
-    lots: List[ShareLot]
+    lots: list[ShareLot]
     assetType: str
 
 class ClosedSymbolSummary(BaseModel):
@@ -51,7 +52,7 @@ class ClosedSymbolSummary(BaseModel):
     averageBuyPrice: float
     averageSellPrice: float
     currency: str
-    lots: List[ClosedShareLot]
+    lots: list[ClosedShareLot]
     assetType: str
 
 class SymbolTransaction(BaseModel):
@@ -68,8 +69,8 @@ class SymbolTransaction(BaseModel):
     runningShares: float
     runningTotalCost: float
     runningAverageCost: float
-    realizedPL: Optional[float] = None
-    realizedPLPercent: Optional[float] = None
+    realizedPL: float | None = None
+    realizedPLPercent: float | None = None
 
 class SymbolTransactionSummary(BaseModel):
     symbol: str
@@ -91,23 +92,23 @@ class SymbolTransactionSummary(BaseModel):
     realizedPLPercent: float
     firstTradeDate: str
     lastTradeDate: str
-    transactions: List[SymbolTransaction]
+    transactions: list[SymbolTransaction]
 
 class SheetResult(BaseModel):
-    summaries: List[SymbolSummary]
-    closedSummaries: List[ClosedSymbolSummary]
-    transactionSummaries: Optional[List[SymbolTransactionSummary]] = None
-    rawTransactions: Optional[List[Transaction]] = None
-    totalCostByCurrency: Dict[str, float]
-    totalProceedsByCurrency: Dict[str, float]
-    totalRealizedPLByCurrency: Dict[str, float]
+    summaries: list[SymbolSummary]
+    closedSummaries: list[ClosedSymbolSummary]
+    transactionSummaries: list[SymbolTransactionSummary] | None = None
+    rawTransactions: list[Transaction] | None = None
+    totalCostByCurrency: dict[str, float]
+    totalProceedsByCurrency: dict[str, float]
+    totalRealizedPLByCurrency: dict[str, float]
     totalSymbols: int
     totalLots: int
-    error: Optional[str] = None
-    isClosed: Optional[bool] = False
+    error: str | None = None
+    isClosed: bool | None = False
 
 class PriceData(BaseModel):
     symbol: str
-    name: Optional[str] = ""
+    name: str | None = ""
     price: float
     currency: str

@@ -1,27 +1,30 @@
-import httpx
 import asyncio
-from typing import Dict, List, Any, Tuple, Optional
 import urllib.parse
+from typing import Any
+
+import httpx
+
 from models.transaction import PriceData
 from services.nav_service import NavService
-from utils.format_utils import to_yahoo_symbol, resolve_quote_currency
+from utils.format_utils import resolve_quote_currency, to_yahoo_symbol
+
 
 class PriceService:
     def __init__(self):
         self.nav_service = NavService()
         self.client = httpx.AsyncClient(follow_redirects=True, headers={'User-Agent': 'Mozilla/5.0'})
 
-    async def fetch_prices_and_rate(self, summaries: List[Dict[str, str]]) -> Dict[str, Any]:
+    async def fetch_prices_and_rate(self, summaries: list[dict[str, str]]) -> dict[str, Any]:
         prices_task = self.fetch_prices(summaries)
         rate_task = self.fetch_exchange_rate()
-        
+
         prices, rate = await asyncio.gather(prices_task, rate_task)
         return {"prices": prices, "rate": rate}
 
     async def fetch_exchange_rate(self, from_currency: str = 'USD', to_currency: str = 'THB') -> float:
         if from_currency == to_currency:
             return 1.0
-            
+
         pair = f"{from_currency}{to_currency}=X"
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(pair)}?range=1d&interval=1d&includePrePost=false"
         try:
@@ -33,17 +36,17 @@ class PriceService:
             return 0.0
 
     @staticmethod
-    def _is_crypto(s: Dict[str, str]) -> bool:
+    def _is_crypto(s: dict[str, str]) -> bool:
         return s.get('assetType') == 'crypto' or s.get('symbol', '').upper().endswith('.CRYPTO')
 
     @staticmethod
-    def _is_fund(s: Dict[str, str]) -> bool:
+    def _is_fund(s: dict[str, str]) -> bool:
         return s.get('assetType') == 'mutual-fund' or s.get('symbol', '').upper().endswith('.BKFUND')
 
     def _extract_yahoo_price(self, meta: dict) -> float:
         return meta.get('regularMarketPrice') or meta.get('chartPreviousClose') or meta.get('previousClose') or 0.0
 
-    async def fetch_prices(self, summaries: List[Dict[str, str]]) -> Dict[str, PriceData]:
+    async def fetch_prices(self, summaries: list[dict[str, str]]) -> dict[str, PriceData]:
         if not summaries:
             return {}
 
@@ -64,7 +67,7 @@ class PriceService:
             merged.update(res_map)
         return merged
 
-    async def _fetch_single_stock(self, symbol: str) -> Tuple[str, PriceData]:
+    async def _fetch_single_stock(self, symbol: str) -> tuple[str, PriceData]:
         yahoo_symbol = to_yahoo_symbol(symbol)
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(yahoo_symbol)}?range=1d&interval=1d&includePrePost=false"
         try:
@@ -81,7 +84,7 @@ class PriceService:
         except Exception:
             return symbol, PriceData(symbol=symbol, name='', price=0.0, currency='')
 
-    async def fetch_stock_prices(self, symbols: List[str]) -> Dict[str, PriceData]:
+    async def fetch_stock_prices(self, symbols: list[str]) -> dict[str, PriceData]:
         results = await asyncio.gather(*[self._fetch_single_stock(sym) for sym in symbols])
         price_map = {}
         for sym, data in results:
@@ -89,7 +92,7 @@ class PriceService:
                 price_map[sym] = data
         return price_map
 
-    async def _fetch_binance_tickers(self) -> list:
+    async def _fetch_binance_tickers(self) -> Any:
         try:
             res = await self.client.get("https://api.binance.th/api/v1/ticker/price")
             res.raise_for_status()
@@ -97,7 +100,7 @@ class PriceService:
         except Exception:
             return []
 
-    async def _fetch_yahoo_crypto_name(self, symbol: str) -> Tuple[str, str]:
+    async def _fetch_yahoo_crypto_name(self, symbol: str) -> tuple[str, str]:
         import re
         base = re.sub(r'(?i)\.CRYPTO$', '', symbol).strip().upper()
         yahoo_symbol = f"{base}-USD"
@@ -110,7 +113,7 @@ class PriceService:
         except Exception:
             return symbol, ''
 
-    def _resolve_crypto_price(self, raw_symbol: str, tickers: list) -> Tuple[float, str]:
+    def _resolve_crypto_price(self, raw_symbol: str, tickers: list) -> tuple[float, str]:
         import re
         base = re.sub(r'(?i)\.CRYPTO$', '', raw_symbol).strip().upper()
         if not base or not tickers:
@@ -128,15 +131,15 @@ class PriceService:
                 matches.append((quote, resolve_quote_currency(quote), price))
         if not matches:
             return 0.0, ''
-        
+
         best_match = next((m for m in matches if m[1] == 'THB'), None) or \
                      next((m for m in matches if m[1] == 'USD'), None) or matches[0]
         return best_match[2], best_match[1] or 'USD'
 
-    async def fetch_crypto_prices(self, symbols: List[str]) -> Dict[str, PriceData]:
+    async def fetch_crypto_prices(self, symbols: list[str]) -> dict[str, PriceData]:
         tickers_task = self._fetch_binance_tickers()
         names_task = asyncio.gather(*[self._fetch_yahoo_crypto_name(sym) for sym in symbols])
-        
+
         tickers, names = await asyncio.gather(tickers_task, names_task)
         name_map = dict(names)
 

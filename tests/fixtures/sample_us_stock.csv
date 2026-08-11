@@ -1,0 +1,5 @@
+Symbol,Date,Quantity,Price,Currency,Asset Type
+AAPL,2026-01-05,10,150.00,USD,us-stock
+AAPL,2026-01-10,5,160.00,USD,us-stock
+AAPL,2026-01-20,-8,170.00,USD,us-stock
+NVDA,2026-01-15,4,500.00,USD,us-stock

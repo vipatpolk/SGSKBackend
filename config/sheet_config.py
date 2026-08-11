@@ -1,4 +1,6 @@
-SHEET_CONFIG = {
+from typing import Any
+
+SHEET_CONFIG: dict[str, Any] = {
     "baseUrl": "https://docs.google.com/spreadsheets/d",
     "spreadsheetId": "1gc98SMT2mJOaKZC15JWxflZk_GASAW_1m72_Ex8CnFQ",
     "gids": {

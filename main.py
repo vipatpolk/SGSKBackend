@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import share_lot, price, nav
+
+from routers import nav, price, share_lot
 
 app = FastAPI(title="SGSKBackend")
 

@@ -20,17 +20,19 @@ This is the Python **FastAPI** backend for the [ShareLot](https://github.com/vip
 - `GET /share-lot/sheets` — Fetches and aggregates transaction logs across all active tabs in the portfolio.
 
 ### Market Data & Prices
-- `GET /price/batch?symbols=AAPL,PTT.BK` — Batch fetches market quotes and currency data from Yahoo Finance and Binance TH.
-- `GET /price/symbol/{symbol}` — Fetches single symbol market data.
-- `GET /price/rate/usd-thb` — Live USD/THB exchange rate lookup.
-- `GET /nav/fund/{symbol}` — Fetches daily NAV data for Thai Mutual Funds via SEC Thailand API.
+- `POST /price/fetch-prices` — Batch fetches market quotes and currency data for a list of portfolio asset summaries across Yahoo Finance, Binance TH, and SEC Thailand.
+- `GET /price/exchange-rate` — Live exchange rate lookup (defaults to `from_currency=USD&to_currency=THB`).
+
+### Mutual Fund NAVs
+- `POST /nav/fetch` — Fetches daily NAV data for Thai Mutual Funds via the SEC Thailand API.
 
 ## Requirements
 
 - Python 3.9+
-- `fastapi[standard]`
+- `fastapi`
 - `httpx`
 - `uvicorn`
+- `pydantic`
 
 ## Installation
 
@@ -40,7 +42,7 @@ This is the Python **FastAPI** backend for the [ShareLot](https://github.com/vip
    cd SGSKBackend
    ```
 
-2. Create a virtual environment and install dependencies:
+2. Create a virtual environment and install production dependencies:
    ```bash
    python -m venv .venv
    # On Windows:
@@ -49,6 +51,11 @@ This is the Python **FastAPI** backend for the [ShareLot](https://github.com/vip
    source .venv/bin/activate
 
    pip install -r requirements.txt
+   ```
+
+3. (Optional) Install developer dependencies for testing, linting, and type checking:
+   ```bash
+   pip install -r requirements-dev.txt
    ```
 
 ## Running the Server
@@ -65,11 +72,60 @@ fastapi dev main.py
 
 The server will run on `http://127.0.0.1:8000` by default.
 
-## API Documentation
+## Interactive API Documentation
 
-FastAPI automatically generates interactive API documentation. Once the server is running, you can explore the endpoints at:
+FastAPI automatically generates interactive API documentation. Once the server is running, explore the endpoints at:
 - **Swagger UI**: `http://127.0.0.1:8000/docs`
 - **ReDoc**: `http://127.0.0.1:8000/redoc`
+
+## Testing & Quality Assurance
+
+`SGSKBackend` uses `pytest`, `respx` (for HTTP mocking), `ruff` (linter/formatter), and `mypy` (static type checker).
+
+### Running Unit & Deterministic E2E Tests
+
+Run the test suite with coverage enforcement ($\ge 80\%$ threshold):
+
+```bash
+pytest -m "not live_e2e" --cov=. --cov-report=term-missing
+```
+
+### Running Live External API Health Checks
+
+To run integration tests against live Google Sheets, Yahoo Finance, Binance TH, and SEC Thailand APIs:
+
+```bash
+pytest -m "live_e2e" --verbose
+```
+
+### Code Formatting & Linting
+
+Run Ruff to lint code:
+
+```bash
+ruff check .
+```
+
+To automatically fix fixable lint issues:
+
+```bash
+ruff check --fix .
+```
+
+### Static Type Checking
+
+Run Mypy type checker across all Python files:
+
+```bash
+mypy .
+```
+
+## Continuous Integration (CI/CD)
+
+The repository includes GitHub Actions workflows under `.github/workflows/`:
+
+- **Backend CI Pipeline (`backend-ci.yml`)**: Triggered on pull requests and pushes to `main`/`master`. Runs Ruff linting, Mypy type checks, Pytest unit/E2E test suite, and uploads code coverage reports.
+- **Live Health Check Cron (`live-e2e-cron.yml`)**: Scheduled daily cron workflow verifying live third-party financial API connectivity.
 
 ## Configuration
 

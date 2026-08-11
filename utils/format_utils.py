@@ -1,6 +1,6 @@
-from typing import Optional
 
-def normalize_asset_type(raw_type: str) -> Optional[str]:
+
+def normalize_asset_type(raw_type: str) -> str | None:
     if not raw_type:
         return None
     normalized = raw_type.strip().lower()
@@ -14,14 +14,14 @@ def normalize_asset_type(raw_type: str) -> Optional[str]:
         return 'mutual-fund'
     return None
 
-def get_asset_type(asset_type: str = None, symbol: str = None) -> str:
+def get_asset_type(asset_type: str | None = None, symbol: str | None = None) -> str:
     non_asset_types = {'closed-position', 'all', 'unknown'}
     if asset_type and asset_type not in non_asset_types:
         normalized = normalize_asset_type(asset_type)
         if normalized:
             return normalized
         return asset_type
-    
+
     if symbol:
         sym = symbol.upper()
         if sym.endswith('.BKFUND'): return 'mutual-fund'
