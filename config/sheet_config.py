@@ -1,8 +1,9 @@
 from typing import Any
 
+from config.settings import get_settings
+
 SHEET_CONFIG: dict[str, Any] = {
     "baseUrl": "https://docs.google.com/spreadsheets/d",
-    "spreadsheetId": "1gc98SMT2mJOaKZC15JWxflZk_GASAW_1m72_Ex8CnFQ",
     "gids": {
         "us-stock": "1032243687",
         "thai-stock": "102823823",
@@ -22,4 +23,6 @@ ASSET_TABS = [
 ]
 
 def get_sheet_export_url(gid: str) -> str:
-    return f"{SHEET_CONFIG['baseUrl']}/{SHEET_CONFIG['spreadsheetId']}/export?format=csv&gid={gid}"
+    settings = get_settings()
+    return f"{SHEET_CONFIG['baseUrl']}/{settings.google_spreadsheet_id}/export?format=csv&gid={gid}"
+

@@ -16,11 +16,17 @@ from models.transaction import (
     Transaction,
 )
 from utils.format_utils import get_asset_type, normalize_asset_type
+from utils.google_auth import get_google_auth_headers
+from utils.http_client import get_http_client, get_outbound_semaphore
 
 
 class ShareLotService:
-    def __init__(self):
-        self.client = httpx.AsyncClient(follow_redirects=True)
+    def __init__(self, client: httpx.AsyncClient | None = None):
+        self._custom_client = client
+
+    @property
+    def client(self) -> httpx.AsyncClient:
+        return self._custom_client or get_http_client()
 
     async def fetch_sheet(self, tab_id: str) -> SheetResult:
         tab = next((t for t in ASSET_TABS if t['id'] == tab_id), None)
@@ -30,9 +36,11 @@ class ShareLotService:
         url = get_sheet_export_url(tab['sheetGid'])
         is_closed = tab['id'] == 'closed-position'
         asset_type = tab['id']
+        headers = get_google_auth_headers()
 
         try:
-            res = await self.client.get(url)
+            async with get_outbound_semaphore():
+                res = await self.client.get(url, headers=headers)
             res.raise_for_status()
             csv_text = res.text
 
@@ -48,7 +56,9 @@ class ShareLotService:
 
         async def fetch_and_parse(tab):
             try:
-                res = await self.client.get(get_sheet_export_url(tab['sheetGid']))
+                headers = get_google_auth_headers()
+                async with get_outbound_semaphore():
+                    res = await self.client.get(get_sheet_export_url(tab['sheetGid']), headers=headers)
                 res.raise_for_status()
                 return self.parse_csv(res.text, tab['id'])
             except Exception:

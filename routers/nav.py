@@ -1,14 +1,12 @@
+from fastapi import APIRouter, Depends
 
-from fastapi import APIRouter
-from pydantic import BaseModel
-
+from models.requests import NavRequest
 from services.nav_service import NavService
+from utils.auth import verify_api_key
 
-router = APIRouter(prefix="/nav", tags=["nav"])
+router = APIRouter(prefix="/nav", tags=["nav"], dependencies=[Depends(verify_api_key)])
 service = NavService()
 
-class NavRequest(BaseModel):
-    symbols: list[str]
 
 @router.post("/fetch")
 async def fetch_navs(req: NavRequest):

@@ -5,20 +5,26 @@ from typing import Any
 
 import httpx
 
+from config.settings import get_settings
 from models.transaction import PriceData
+from utils.http_client import get_http_client, get_outbound_semaphore
 
 SEC_API_CONFIG = {
-    'subscriptionKey': '5544171ad4944dde9454d20054233891',
     'baseUrl': 'https://api.sec.or.th/v2/fund',
 }
 
 class NavService:
-    def __init__(self):
+    def __init__(self, client: httpx.AsyncClient | None = None):
+        settings = get_settings()
         self.headers = {
-            'Ocp-Apim-Subscription-Key': SEC_API_CONFIG['subscriptionKey'],
+            'Ocp-Apim-Subscription-Key': settings.sec_subscription_key,
             'Accept': 'application/json'
         }
-        self.client = httpx.AsyncClient(headers=self.headers)
+        self._custom_client = client
+
+    @property
+    def client(self) -> httpx.AsyncClient:
+        return self._custom_client or get_http_client()
 
     async def fetch_fund_navs(self, symbols: list[str]) -> dict[str, PriceData]:
         unique_symbols = list(set(symbols))
@@ -58,7 +64,8 @@ class NavService:
     async def fetch_fund_profile(self, clean_symbol: str, sym_upper: str) -> Any:
         try:
             url1 = f"{SEC_API_CONFIG['baseUrl']}/general-info/profiles?fund_class_name={urllib.parse.quote(clean_symbol)}"
-            res = await self.client.get(url1)
+            async with get_outbound_semaphore():
+                res = await self.client.get(url1, headers=self.headers)
             res.raise_for_status()
             class_items = []
             if res.status_code != 204:
@@ -70,7 +77,8 @@ class NavService:
                     return i
 
             url2 = f"{SEC_API_CONFIG['baseUrl']}/general-info/profiles?project_info={urllib.parse.quote(clean_symbol)}"
-            res2 = await self.client.get(url2)
+            async with get_outbound_semaphore():
+                res2 = await self.client.get(url2, headers=self.headers)
             res2.raise_for_status()
             proj_items = []
             if res2.status_code != 204:
@@ -103,7 +111,8 @@ class NavService:
 
         url = f"{SEC_API_CONFIG['baseUrl']}/daily-info/nav?proj_id={urllib.parse.quote(fund['projId'])}&start_nav_date={fmt_date(start)}&end_nav_date={fmt_date(end)}"
         try:
-            res = await self.client.get(url)
+            async with get_outbound_semaphore():
+                res = await self.client.get(url, headers=self.headers)
             res.raise_for_status()
             data_raw = res.json()
             data = data_raw if isinstance(data_raw, list) else data_raw.get('items', [])

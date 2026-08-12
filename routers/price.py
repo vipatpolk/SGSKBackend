@@ -1,18 +1,17 @@
+from fastapi import APIRouter, Depends
 
-from fastapi import APIRouter
-from pydantic import BaseModel
-
+from models.requests import SummariesRequest
 from services.price_service import PriceService
+from utils.auth import verify_api_key
 
-router = APIRouter(prefix="/price", tags=["price"])
+router = APIRouter(prefix="/price", tags=["price"], dependencies=[Depends(verify_api_key)])
 service = PriceService()
 
-class SummariesRequest(BaseModel):
-    summaries: list[dict[str, str]]
 
 @router.post("/fetch-prices")
 async def fetch_prices_and_rate(req: SummariesRequest):
     return await service.fetch_prices_and_rate(req.summaries)
+
 
 @router.get("/exchange-rate")
 async def fetch_exchange_rate(from_currency: str = "USD", to_currency: str = "THB"):

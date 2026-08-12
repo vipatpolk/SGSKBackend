@@ -9,6 +9,9 @@ dependencies = [
     "uvicorn",
     "httpx",
     "pydantic",
+    "pydantic-settings",
+    "google-auth",
+    "requests",
 ]
 
 [tool.pytest.ini_options]

@@ -14,6 +14,11 @@ FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 
 @pytest.fixture
 def api_client():
+    return TestClient(app, headers={"X-API-Key": "b86a9bd915faca17a7f7bd0bf5707163b971473b8f117725f9e9b040d93588e7"})
+
+
+@pytest.fixture
+def unauth_api_client():
     return TestClient(app)
 
 @pytest.fixture

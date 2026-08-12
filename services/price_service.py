@@ -7,12 +7,17 @@ import httpx
 from models.transaction import PriceData
 from services.nav_service import NavService
 from utils.format_utils import resolve_quote_currency, to_yahoo_symbol
+from utils.http_client import get_http_client, get_outbound_semaphore
 
 
 class PriceService:
-    def __init__(self):
-        self.nav_service = NavService()
-        self.client = httpx.AsyncClient(follow_redirects=True, headers={'User-Agent': 'Mozilla/5.0'})
+    def __init__(self, client: httpx.AsyncClient | None = None, nav_service: NavService | None = None):
+        self.nav_service = nav_service or NavService(client=client)
+        self._custom_client = client
+
+    @property
+    def client(self) -> httpx.AsyncClient:
+        return self._custom_client or get_http_client()
 
     async def fetch_prices_and_rate(self, summaries: list[dict[str, str]]) -> dict[str, Any]:
         prices_task = self.fetch_prices(summaries)
@@ -28,7 +33,8 @@ class PriceService:
         pair = f"{from_currency}{to_currency}=X"
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(pair)}?range=1d&interval=1d&includePrePost=false"
         try:
-            res = await self.client.get(url)
+            async with get_outbound_semaphore():
+                res = await self.client.get(url)
             res.raise_for_status()
             meta = res.json().get('chart', {}).get('result', [{}])[0].get('meta', {})
             return self._extract_yahoo_price(meta)
@@ -71,7 +77,8 @@ class PriceService:
         yahoo_symbol = to_yahoo_symbol(symbol)
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(yahoo_symbol)}?range=1d&interval=1d&includePrePost=false"
         try:
-            res = await self.client.get(url)
+            async with get_outbound_semaphore():
+                res = await self.client.get(url)
             res.raise_for_status()
             meta = res.json().get('chart', {}).get('result', [{}])[0].get('meta', {})
             price = self._extract_yahoo_price(meta)
@@ -94,7 +101,8 @@ class PriceService:
 
     async def _fetch_binance_tickers(self) -> Any:
         try:
-            res = await self.client.get("https://api.binance.th/api/v1/ticker/price")
+            async with get_outbound_semaphore():
+                res = await self.client.get("https://api.binance.th/api/v1/ticker/price")
             res.raise_for_status()
             return res.json()
         except Exception:
@@ -106,7 +114,8 @@ class PriceService:
         yahoo_symbol = f"{base}-USD"
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(yahoo_symbol)}?range=1d&interval=1d&includePrePost=false"
         try:
-            res = await self.client.get(url)
+            async with get_outbound_semaphore():
+                res = await self.client.get(url)
             res.raise_for_status()
             meta = res.json().get('chart', {}).get('result', [{}])[0].get('meta', {})
             return symbol, meta.get('longName') or meta.get('shortName') or ''

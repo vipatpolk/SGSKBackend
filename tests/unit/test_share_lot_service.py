@@ -24,7 +24,7 @@ async def test_fetch_sheet_mocked_http(service, monkeypatch, fixture_us_stock_cs
         text = fixture_us_stock_csv
         def raise_for_status(self): pass
 
-    async def mock_get(url):
+    async def mock_get(url, *args, **kwargs):
         return MockResponse()
 
     monkeypatch.setattr(service.client, "get", mock_get)
@@ -42,7 +42,7 @@ async def test_fetch_closed_position_sheet_mocked(service, monkeypatch, sample_c
         text = sample_csv_closed_position
         def raise_for_status(self): pass
 
-    async def mock_get(url):
+    async def mock_get(url, *args, **kwargs):
         return MockResponse()
 
     monkeypatch.setattr(service.client, "get", mock_get)
@@ -61,7 +61,7 @@ async def test_fetch_all_sheets_mocked(service, monkeypatch, fixture_us_stock_cs
         text = fixture_us_stock_csv
         def raise_for_status(self): pass
 
-    async def mock_get(url):
+    async def mock_get(url, *args, **kwargs):
         return MockResponse()
 
     monkeypatch.setattr(service.client, "get", mock_get)
