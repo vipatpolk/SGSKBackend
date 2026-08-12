@@ -292,14 +292,14 @@ class ShareLotService:
                         matched_qty = min(lot.quantity, remaining_to_sell)
                         buy_cost = matched_qty * lot.costBasis
                         sell_proceeds = matched_qty * price
-                        realized_pl = sell_proceeds - buy_cost
-                        realized_pl_percent = (realized_pl / buy_cost) * 100 if buy_cost > 0 else 0
+                        lot_realized_pl = sell_proceeds - buy_cost
+                        lot_realized_pl_pct = (lot_realized_pl / buy_cost) * 100.0 if buy_cost > 0 else 0.0
 
                         closed_lots.append(ClosedShareLot(
                             symbol=tx.symbol, purchaseDate=lot.purchaseDate, closeDate=tx.date,
                             quantity=matched_qty, costBasis=lot.costBasis, sellPrice=price,
-                            totalCost=buy_cost, totalProceeds=sell_proceeds, realizedPL=realized_pl,
-                            realizedPLPercent=realized_pl_percent, currency=tx.currency, assetType=tx.assetType
+                            totalCost=buy_cost, totalProceeds=sell_proceeds, realizedPL=lot_realized_pl,
+                            realizedPLPercent=lot_realized_pl_pct, currency=tx.currency, assetType=tx.assetType
                         ))
 
                         lot.quantity -= matched_qty
@@ -307,14 +307,14 @@ class ShareLotService:
                         remaining_to_sell -= matched_qty
                         matched_cost += buy_cost
 
+                    tx_realized_pl: float | None = None
+                    tx_realized_pl_pct: float | None = None
+
                     if matched_cost > 0:
-                        realized_pl = total_amount - matched_cost
-                        realized_pl_percent = (realized_pl / matched_cost) * 100
-                        total_realized_pl += realized_pl
+                        tx_realized_pl = total_amount - matched_cost
+                        tx_realized_pl_pct = (tx_realized_pl / matched_cost) * 100.0
+                        total_realized_pl += tx_realized_pl
                         total_realized_cost_basis += matched_cost
-                    else:
-                        realized_pl = None
-                        realized_pl_percent = None
 
                     running_shares = max(0.0, running_shares - qty)
                     running_total_cost = sum(lot.totalCost for lot in open_lots)
@@ -328,7 +328,7 @@ class ShareLotService:
                         quantity=qty, rawQuantity=tx.quantity, price=price, totalAmount=total_amount,
                         currency=tx.currency, assetType=tx.assetType, runningShares=running_shares,
                         runningTotalCost=running_total_cost, runningAverageCost=running_avg,
-                        realizedPL=realized_pl, realizedPLPercent=realized_pl_percent,
+                        realizedPL=tx_realized_pl, realizedPLPercent=tx_realized_pl_pct,
                         exchangeFrom=tx.exchangeFrom, exchangeTo=tx.exchangeTo
                     ))
 
