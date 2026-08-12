@@ -79,12 +79,12 @@ def test_exchange_out_realized_pl_calculation(service):
     )
     txs = service.parse_csv(csv_content, "mutual-fund")
     summaries, closed_summaries, tx_summaries = service.process_transactions(txs)
-    
+
     assert len(tx_summaries) == 1
     t_summary = tx_summaries[0]
     assert t_summary.symbol == "T-ES-GSBOND.BKFUND"
     assert t_summary.exchangeCount == 1
-    
+
     processed_txs = t_summary.transactions
     assert len(processed_txs) == 2
     ex_out_tx = processed_txs[1]
