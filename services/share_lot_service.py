@@ -151,7 +151,22 @@ class ShareLotService:
         qty_idx = max(2, find_idx('quantity', 'qty'))
         price_idx = max(3, find_idx('price'))
         curr_idx = max(4, find_idx('currency', 'curr'))
-        type_idx = find_idx('type', 'asset', 'assettype', 'asset type')
+        type_idx = find_idx('assettype', 'asset type', 'asset')
+        tx_type_idx = find_idx('transaction type', 'tx_type', 'txtype', 'action', 'trade type', 'trade_type', 'type')
+        ex_from_idx = find_idx(
+            'exchange from', 'exchnage from', 'exchange_from', 'exchnage_from',
+            'exchange in', 'exchnage in', 'exchange_in', 'exchnage_in',
+            'switch from', 'switch_from', 'switch in', 'switch_in',
+            'from fund', 'from_fund', 'from symbol', 'from_symbol', 'source fund', 'source_fund',
+            'from'
+        )
+        ex_to_idx = find_idx(
+            'exchange to', 'exchnage to', 'exchange_to', 'exchnage_to',
+            'exchange out', 'exchnage out', 'exchange_out', 'exchnage_out',
+            'switch to', 'switch_to', 'switch out', 'switch_out',
+            'to fund', 'to_fund', 'to symbol', 'to_symbol', 'target fund', 'target_fund',
+            'to'
+        )
 
         transactions = []
         for row in rows[1:]:
@@ -175,9 +190,25 @@ class ShareLotService:
             parsed_type = normalize_asset_type(raw_type) if raw_type else None
             asset_type = parsed_type or get_asset_type(tab_asset_type, symbol)
 
+            ex_from = row[ex_from_idx].strip() if ex_from_idx != -1 and len(row) > ex_from_idx and row[ex_from_idx].strip() else None
+            ex_to = row[ex_to_idx].strip() if ex_to_idx != -1 and len(row) > ex_to_idx and row[ex_to_idx].strip() else None
+            parsed_tx_type = row[tx_type_idx].strip().upper() if tx_type_idx != -1 and len(row) > tx_type_idx and row[tx_type_idx].strip() else None
+            if not parsed_tx_type and raw_type:
+                parsed_tx_type = raw_type.strip().upper()
+
+            # Row text fallback scan for exchange metadata
+            row_str = " ".join([c.strip() for c in row]).upper()
+            if any(kw in row_str for kw in ['EXCHANGE OUT', 'EXCHNAGE OUT', 'SWITCH OUT', 'EX-OUT', 'SW-OUT', 'EXCHANGE_OUT']):
+                parsed_tx_type = 'EXCHANGE_OUT'
+            elif any(kw in row_str for kw in ['EXCHANGE IN', 'EXCHNAGE IN', 'SWITCH IN', 'EX-IN', 'SW-IN', 'EXCHANGE_IN']):
+                parsed_tx_type = 'EXCHANGE_IN'
+            elif any(kw in row_str for kw in ['EXCHANGE', 'EXCHNAGE', 'SWITCH', 'SWTICH']) and not parsed_tx_type:
+                parsed_tx_type = 'EXCHANGE'
+
             transactions.append(Transaction(
                 symbol=symbol, date=date, quantity=quantity,
-                price=price, currency=currency, assetType=asset_type
+                price=price, currency=currency, assetType=asset_type,
+                exchangeFrom=ex_from, exchangeTo=ex_to, txType=parsed_tx_type
             ))
 
         return transactions
@@ -209,6 +240,7 @@ class ShareLotService:
             total_sell_amount = 0.0
             buy_count = 0
             sell_count = 0
+            exchange_count = 0
             total_realized_pl = 0.0
             total_realized_cost_basis = 0.0
 
@@ -219,8 +251,13 @@ class ShareLotService:
                 total_amount = qty * price
                 tx_id = f"{symbol}-{tx.date}-{i+1}"
 
-                if is_buy:
-                    buy_count += 1
+                tx_type, is_exchange = self._classify_transaction_type(tx, is_buy)
+                if is_exchange:
+                    exchange_count += 1
+
+                if tx_type in ('BUY', 'EXCHANGE_IN') or (is_buy and tx_type != 'EXCHANGE_OUT'):
+                    if not is_exchange:
+                        buy_count += 1
                     total_buy_shares += qty
                     total_buy_amount += total_amount
                     running_shares += qty
@@ -233,13 +270,15 @@ class ShareLotService:
                     ))
 
                     processed_tx_list.append(SymbolTransaction(
-                        id=tx_id, symbol=tx.symbol, date=tx.date, type='BUY',
+                        id=tx_id, symbol=tx.symbol, date=tx.date, type=tx_type,
                         quantity=qty, rawQuantity=tx.quantity, price=price, totalAmount=total_amount,
                         currency=tx.currency, assetType=tx.assetType, runningShares=running_shares,
-                        runningTotalCost=running_total_cost, runningAverageCost=running_avg
+                        runningTotalCost=running_total_cost, runningAverageCost=running_avg,
+                        exchangeFrom=tx.exchangeFrom, exchangeTo=tx.exchangeTo
                     ))
                 else:
-                    sell_count += 1
+                    if not is_exchange:
+                        sell_count += 1
                     total_sell_shares += qty
                     total_sell_amount += total_amount
 
@@ -268,10 +307,14 @@ class ShareLotService:
                         remaining_to_sell -= matched_qty
                         matched_cost += buy_cost
 
-                    realized_pl = total_amount - matched_cost
-                    realized_pl_percent = (realized_pl / matched_cost) * 100 if matched_cost > 0 else 0
-                    total_realized_pl += realized_pl
-                    total_realized_cost_basis += matched_cost
+                    if matched_cost > 0:
+                        realized_pl = total_amount - matched_cost
+                        realized_pl_percent = (realized_pl / matched_cost) * 100
+                        total_realized_pl += realized_pl
+                        total_realized_cost_basis += matched_cost
+                    else:
+                        realized_pl = None
+                        realized_pl_percent = None
 
                     running_shares = max(0.0, running_shares - qty)
                     running_total_cost = sum(lot.totalCost for lot in open_lots)
@@ -281,11 +324,12 @@ class ShareLotService:
                     running_avg = running_total_cost / running_shares if running_shares > 0 else 0
 
                     processed_tx_list.append(SymbolTransaction(
-                        id=tx_id, symbol=tx.symbol, date=tx.date, type='SELL',
+                        id=tx_id, symbol=tx.symbol, date=tx.date, type=tx_type,
                         quantity=qty, rawQuantity=tx.quantity, price=price, totalAmount=total_amount,
                         currency=tx.currency, assetType=tx.assetType, runningShares=running_shares,
                         runningTotalCost=running_total_cost, runningAverageCost=running_avg,
-                        realizedPL=realized_pl, realizedPLPercent=realized_pl_percent
+                        realizedPL=realized_pl, realizedPLPercent=realized_pl_percent,
+                        exchangeFrom=tx.exchangeFrom, exchangeTo=tx.exchangeTo
                     ))
 
             remaining_lots = [lot for lot in open_lots if lot.quantity > EPSILON]
@@ -319,9 +363,10 @@ class ShareLotService:
 
             transaction_summaries.append(SymbolTransactionSummary(
                 symbol=symbol, assetType=asset_type, currency=currency, totalTransactions=len(txs),
-                buyCount=buy_count, sellCount=sell_count, totalBuyShares=total_buy_shares,
-                totalSellShares=total_sell_shares, totalBuyAmount=total_buy_amount,
-                totalSellAmount=total_sell_amount, averageBuyPrice=avg_buy, averageSellPrice=avg_sell,
+                buyCount=buy_count, sellCount=sell_count, exchangeCount=exchange_count,
+                totalBuyShares=total_buy_shares, totalSellShares=total_sell_shares,
+                totalBuyAmount=total_buy_amount, totalSellAmount=total_sell_amount,
+                averageBuyPrice=avg_buy, averageSellPrice=avg_sell,
                 netShares=running_shares, netInvested=running_total_cost, currentStatus=current_status,
                 realizedPL=total_realized_pl, realizedPLPercent=overall_realized_pl_percent,
                 firstTradeDate=txs[0].date, lastTradeDate=txs[-1].date, transactions=processed_tx_list
@@ -332,3 +377,28 @@ class ShareLotService:
         transaction_summaries.sort(key=lambda x: (-x.totalTransactions, x.symbol))
 
         return summaries, closed_summaries, transaction_summaries
+
+    @staticmethod
+    def _classify_transaction_type(tx: Transaction, is_buy: bool) -> tuple[str, bool]:
+        is_exchange_out = bool(
+            tx.exchangeTo or
+            (tx.txType and any(kw in tx.txType for kw in ['EXCHANGE_OUT', 'EXCHANGE OUT', 'EXCHNAGE OUT', 'SWITCH_OUT', 'SWITCH OUT', 'EX-OUT', 'SW-OUT']))
+        )
+        is_exchange_in = bool(
+            tx.exchangeFrom or
+            (tx.txType and any(kw in tx.txType for kw in ['EXCHANGE_IN', 'EXCHANGE IN', 'EXCHNAGE IN', 'SWITCH_IN', 'SWITCH IN', 'EX-IN', 'SW-IN']))
+        )
+        is_generic_exchange = bool(
+            tx.txType and any(kw in tx.txType for kw in ['EXCHANGE', 'EXCHNAGE', 'SWITCH', 'SWTICH']) and not is_exchange_out and not is_exchange_in
+        )
+
+        is_exchange = is_exchange_out or is_exchange_in or is_generic_exchange
+
+        if is_exchange_out or (is_generic_exchange and not is_buy):
+            tx_type = 'EXCHANGE_OUT'
+        elif is_exchange_in or (is_generic_exchange and is_buy):
+            tx_type = 'EXCHANGE_IN'
+        else:
+            tx_type = 'BUY' if is_buy else 'SELL'
+
+        return tx_type, is_exchange

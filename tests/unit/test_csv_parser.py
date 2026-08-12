@@ -69,3 +69,39 @@ def test_parse_exported_5_column_csv_roundtrip(service):
     assert transactions[2].symbol == "BTC.CRYPTO"
     assert transactions[2].assetType == "crypto"
 
+
+@pytest.mark.unit
+def test_parse_mutual_fund_exchange_csv(service):
+    """Verify parsing mutual fund CSV with Exchange From and Exchange To columns."""
+    csv_text = """Symbol,Date,Quantity,Price,Currency,Exchange From,Exchange To
+K-USA,2026-03-01,100,15.5,THB,K-CASH,
+K-CASH,2026-03-01,-1000,1.55,THB,,K-USA
+"""
+    transactions = service.parse_csv(csv_text, "mutual-fund")
+    assert len(transactions) == 2
+
+    t1 = transactions[0]
+    assert t1.symbol == "K-USA"
+    assert t1.quantity == 100.0
+    assert t1.exchangeFrom == "K-CASH"
+    assert t1.exchangeTo is None
+
+    t2 = transactions[1]
+    assert t2.symbol == "K-CASH"
+    assert t2.quantity == -1000.0
+    assert t2.exchangeFrom is None
+    assert t2.exchangeTo == "K-USA"
+
+    # Verify process_transactions correctly sets transaction type and exchange count
+    _, _, summaries = service.process_transactions(transactions)
+    k_usa_summary = next(s for s in summaries if s.symbol == "K-USA")
+    assert k_usa_summary.exchangeCount == 1
+    assert k_usa_summary.transactions[0].type == "EXCHANGE_IN"
+    assert k_usa_summary.transactions[0].exchangeFrom == "K-CASH"
+
+    k_cash_summary = next(s for s in summaries if s.symbol == "K-CASH")
+    assert k_cash_summary.exchangeCount == 1
+    assert k_cash_summary.transactions[0].type == "EXCHANGE_OUT"
+    assert k_cash_summary.transactions[0].exchangeTo == "K-USA"
+
+

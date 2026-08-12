@@ -5,7 +5,8 @@ This is the Python **FastAPI** backend for the [ShareLot](https://github.com/vip
 ## Features
 
 - **Google Sheets Integration**: Fetches published CSV sheets dynamically to retrieve user transaction logs based on tab IDs (`us-stock`, `thai-stock`, `crypto`, `mutual-fund`, `closed-position`).
-- **FIFO Share Lot Engine**: Computes First-In, First-Out (FIFO) share lots, remaining open positions, cost basis, and realized P/L server-side.
+- **FIFO Share Lot Engine**: Computes First-In, First-Out (FIFO) share lots, remaining open positions, cost basis, and realized P/L server-side, with support for mutual fund exchange dispositions (`EX-OUT` and `EX-IN`).
+- **Strict Asset Type Rules**: Identifies Thai Mutual Funds strictly by `.BKFUND` suffix (no symbol prefix heuristics).
 - **Decoupled Architecture**: Encapsulates Google Spreadsheet IDs and GID mappings in `config/sheet_config.py`, allowing the frontend to query endpoints cleanly via tab IDs without exposing raw spreadsheet metadata.
 - **Market Data Proxy**: Fetches and aggregates real-time quotes, exchange rates, and metadata from:
   - **Yahoo Finance** (U.S. Stocks, Thai Stocks via `.BK`, USD/THB FX rate)

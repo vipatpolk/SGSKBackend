@@ -69,3 +69,26 @@ async def test_fetch_all_sheets_mocked(service, monkeypatch, fixture_us_stock_cs
     res = await service.fetch_all_sheets()
     assert res.isClosed is False
     assert res.totalSymbols > 0
+
+@pytest.mark.unit
+def test_exchange_out_realized_pl_calculation(service):
+    csv_content = (
+        "Symbol,Date,Quantity,Price,Currency,Action,Exchange To\n"
+        "T-ES-GSBOND.BKFUND,2024-01-01,100,10.0,THB,BUY,\n"
+        "T-ES-GSBOND.BKFUND,2024-06-01,-100,12.0,THB,Exchange Out,T-ES-US-A.BKFUND\n"
+    )
+    txs = service.parse_csv(csv_content, "mutual-fund")
+    summaries, closed_summaries, tx_summaries = service.process_transactions(txs)
+    
+    assert len(tx_summaries) == 1
+    t_summary = tx_summaries[0]
+    assert t_summary.symbol == "T-ES-GSBOND.BKFUND"
+    assert t_summary.exchangeCount == 1
+    
+    processed_txs = t_summary.transactions
+    assert len(processed_txs) == 2
+    ex_out_tx = processed_txs[1]
+    assert ex_out_tx.type == "EXCHANGE_OUT"
+    assert ex_out_tx.realizedPL == 200.0
+    assert ex_out_tx.realizedPLPercent == 20.0
+    assert ex_out_tx.exchangeTo == "T-ES-US-A.BKFUND"

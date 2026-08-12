@@ -9,6 +9,9 @@ class Transaction(BaseModel):
     price: float
     currency: str
     assetType: str
+    exchangeFrom: str | None = None
+    exchangeTo: str | None = None
+    txType: str | None = None
 
 class ShareLot(BaseModel):
     symbol: str
@@ -59,7 +62,7 @@ class SymbolTransaction(BaseModel):
     id: str
     symbol: str
     date: str
-    type: str # 'BUY' | 'SELL'
+    type: str # 'BUY' | 'SELL' | 'EXCHANGE' | 'EXCHANGE_IN' | 'EXCHANGE_OUT'
     quantity: float
     rawQuantity: float
     price: float
@@ -71,6 +74,8 @@ class SymbolTransaction(BaseModel):
     runningAverageCost: float
     realizedPL: float | None = None
     realizedPLPercent: float | None = None
+    exchangeFrom: str | None = None
+    exchangeTo: str | None = None
 
 class SymbolTransactionSummary(BaseModel):
     symbol: str
@@ -79,6 +84,7 @@ class SymbolTransactionSummary(BaseModel):
     totalTransactions: int
     buyCount: int
     sellCount: int
+    exchangeCount: int = 0
     totalBuyShares: float
     totalSellShares: float
     totalBuyAmount: float
