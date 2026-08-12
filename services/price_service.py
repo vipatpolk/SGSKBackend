@@ -1,4 +1,5 @@
 import asyncio
+import re
 import urllib.parse
 from typing import Any
 
@@ -26,7 +27,7 @@ class PriceService:
         prices, rate = await asyncio.gather(prices_task, rate_task)
         return {"prices": prices, "rate": rate}
 
-    async def fetch_exchange_rate(self, from_currency: str = 'USD', to_currency: str = 'THB') -> float:
+    async def fetch_exchange_rate(self, from_currency: str = "USD", to_currency: str = "THB") -> float:
         if from_currency == to_currency:
             return 1.0
 
@@ -36,36 +37,40 @@ class PriceService:
             async with get_outbound_semaphore():
                 res = await self.client.get(url)
             res.raise_for_status()
-            meta = res.json().get('chart', {}).get('result', [{}])[0].get('meta', {})
+            meta = res.json().get("chart", {}).get("result", [{}])[0].get("meta", {})
             return self._extract_yahoo_price(meta)
         except Exception:
             return 0.0
 
     @staticmethod
     def _is_crypto(s: dict[str, str]) -> bool:
-        return s.get('assetType') == 'crypto' or s.get('symbol', '').upper().endswith('.CRYPTO')
+        return s.get("assetType") == "crypto" or s.get("symbol", "").upper().endswith(".CRYPTO")
 
     @staticmethod
     def _is_fund(s: dict[str, str]) -> bool:
-        return s.get('assetType') == 'mutual-fund' or s.get('symbol', '').upper().endswith('.BKFUND')
+        return s.get("assetType") == "mutual-fund" or s.get("symbol", "").upper().endswith(".BKFUND")
 
-    def _extract_yahoo_price(self, meta: dict) -> float:
-        return meta.get('regularMarketPrice') or meta.get('chartPreviousClose') or meta.get('previousClose') or 0.0
+    def _extract_yahoo_price(self, meta: dict[str, Any]) -> float:
+        return meta.get("regularMarketPrice") or meta.get("chartPreviousClose") or meta.get("previousClose") or 0.0
 
     async def fetch_prices(self, summaries: list[dict[str, str]]) -> dict[str, PriceData]:
         if not summaries:
             return {}
 
-        stock_symbols = list(set([s['symbol'] for s in summaries if not self._is_fund(s) and not self._is_crypto(s)]))
-        crypto_symbols = list(set([s['symbol'] for s in summaries if self._is_crypto(s)]))
-        fund_symbols = list(set([s['symbol'] for s in summaries if self._is_fund(s)]))
+        stock_symbols = list(set([s["symbol"] for s in summaries if not self._is_fund(s) and not self._is_crypto(s)]))
+        crypto_symbols = list(set([s["symbol"] for s in summaries if self._is_crypto(s)]))
+        fund_symbols = list(set([s["symbol"] for s in summaries if self._is_fund(s)]))
 
         tasks = []
-        if stock_symbols: tasks.append(self.fetch_stock_prices(stock_symbols))
-        if crypto_symbols: tasks.append(self.fetch_crypto_prices(crypto_symbols))
-        if fund_symbols: tasks.append(self.nav_service.fetch_fund_navs(fund_symbols))
+        if stock_symbols:
+            tasks.append(self.fetch_stock_prices(stock_symbols))
+        if crypto_symbols:
+            tasks.append(self.fetch_crypto_prices(crypto_symbols))
+        if fund_symbols:
+            tasks.append(self.nav_service.fetch_fund_navs(fund_symbols))
 
-        if not tasks: return {}
+        if not tasks:
+            return {}
 
         results = await asyncio.gather(*tasks)
         merged = {}
@@ -80,16 +85,16 @@ class PriceService:
             async with get_outbound_semaphore():
                 res = await self.client.get(url)
             res.raise_for_status()
-            meta = res.json().get('chart', {}).get('result', [{}])[0].get('meta', {})
+            meta = res.json().get("chart", {}).get("result", [{}])[0].get("meta", {})
             price = self._extract_yahoo_price(meta)
             return symbol, PriceData(
                 symbol=symbol,
-                name=meta.get('longName') or meta.get('shortName') or '',
+                name=meta.get("longName") or meta.get("shortName") or "",
                 price=price,
-                currency=meta.get('currency') or ''
+                currency=meta.get("currency") or "",
             )
         except Exception:
-            return symbol, PriceData(symbol=symbol, name='', price=0.0, currency='')
+            return symbol, PriceData(symbol=symbol, name="", price=0.0, currency="")
 
     async def fetch_stock_prices(self, symbols: list[str]) -> dict[str, PriceData]:
         results = await asyncio.gather(*[self._fetch_single_stock(sym) for sym in symbols])
@@ -109,41 +114,43 @@ class PriceService:
             return []
 
     async def _fetch_yahoo_crypto_name(self, symbol: str) -> tuple[str, str]:
-        import re
-        base = re.sub(r'(?i)\.CRYPTO$', '', symbol).strip().upper()
+        base = re.sub(r"(?i)\.CRYPTO$", "", symbol).strip().upper()
         yahoo_symbol = f"{base}-USD"
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(yahoo_symbol)}?range=1d&interval=1d&includePrePost=false"
         try:
             async with get_outbound_semaphore():
                 res = await self.client.get(url)
             res.raise_for_status()
-            meta = res.json().get('chart', {}).get('result', [{}])[0].get('meta', {})
-            return symbol, meta.get('longName') or meta.get('shortName') or ''
+            meta = res.json().get("chart", {}).get("result", [{}])[0].get("meta", {})
+            return symbol, meta.get("longName") or meta.get("shortName") or ""
         except Exception:
-            return symbol, ''
+            return symbol, ""
 
-    def _resolve_crypto_price(self, raw_symbol: str, tickers: list) -> tuple[float, str]:
-        import re
-        base = re.sub(r'(?i)\.CRYPTO$', '', raw_symbol).strip().upper()
+    def _resolve_crypto_price(self, raw_symbol: str, tickers: list[dict[str, Any]]) -> tuple[float, str]:
+        base = re.sub(r"(?i)\.CRYPTO$", "", raw_symbol).strip().upper()
         if not base or not tickers:
-            return 0.0, ''
+            return 0.0, ""
         matches = []
         for t in tickers:
-            sym = t.get('symbol', '').upper()
-            price = float(t.get('price', 0))
-            if price <= 0: continue
+            sym = t.get("symbol", "").upper()
+            price = float(t.get("price", 0))
+            if price <= 0:
+                continue
             if sym == base:
-                quote = 'THB' if sym.endswith('THB') else ('USD' if 'USD' in sym else '')
-                matches.append((quote, resolve_quote_currency(quote) if quote else '', price))
+                quote = "THB" if sym.endswith("THB") else ("USD" if "USD" in sym else "")
+                matches.append((quote, resolve_quote_currency(quote) if quote else "", price))
             elif sym.startswith(base):
-                quote = sym[len(base):]
+                quote = sym[len(base) :]
                 matches.append((quote, resolve_quote_currency(quote), price))
         if not matches:
-            return 0.0, ''
+            return 0.0, ""
 
-        best_match = next((m for m in matches if m[1] == 'THB'), None) or \
-                     next((m for m in matches if m[1] == 'USD'), None) or matches[0]
-        return best_match[2], best_match[1] or 'USD'
+        best_match = (
+            next((m for m in matches if m[1] == "THB"), None)
+            or next((m for m in matches if m[1] == "USD"), None)
+            or matches[0]
+        )
+        return best_match[2], best_match[1] or "USD"
 
     async def fetch_crypto_prices(self, symbols: list[str]) -> dict[str, PriceData]:
         tickers_task = self._fetch_binance_tickers()
@@ -155,11 +162,6 @@ class PriceService:
         price_map = {}
         for symbol in symbols:
             price, currency = self._resolve_crypto_price(symbol, tickers)
-            dynamic_name = name_map.get(symbol, '')
-            price_map[symbol] = PriceData(
-                symbol=symbol,
-                name=dynamic_name,
-                price=price,
-                currency=currency
-            )
+            dynamic_name = name_map.get(symbol, "")
+            price_map[symbol] = PriceData(symbol=symbol, name=dynamic_name, price=price, currency=currency)
         return price_map
