@@ -53,3 +53,19 @@ NVDA,2026-01-03,5,500.00,USD
     assert len(transactions) == 2
     assert transactions[0].symbol == "AAPL"
     assert transactions[1].symbol == "NVDA"
+
+
+@pytest.mark.unit
+def test_parse_exported_5_column_csv_roundtrip(service):
+    """TC-BE-01: Verify exported 5-column CSV string with BOM marker parses back correctly."""
+    exported_csv = "\uFEFFSymbol,Date,Quantity,Price,Currency\r\nAAPL,2026-01-05,10,150.00,USD\r\nAAPL,2026-01-20,-8,170.00,USD\r\nBTC.CRYPTO,2026-02-01,0.5,95000.00,USD\r\n"
+    transactions = service.parse_csv(exported_csv, "all")
+
+    assert len(transactions) == 3
+    assert transactions[0].symbol == "AAPL"
+    assert transactions[0].quantity == 10.0
+    assert transactions[1].symbol == "AAPL"
+    assert transactions[1].quantity == -8.0
+    assert transactions[2].symbol == "BTC.CRYPTO"
+    assert transactions[2].assetType == "crypto"
+
