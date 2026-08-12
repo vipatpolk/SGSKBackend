@@ -12,7 +12,7 @@ async def test_live_google_sheet_csv_connectivity():
     """Verify live connectivity to published Google Sheets CSV export."""
     gid = SHEET_CONFIG["gids"]["us-stock"]
     url = get_sheet_export_url(gid)
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
         res = await client.get(url)
         assert res.status_code == 200
         assert "Symbol" in res.text
