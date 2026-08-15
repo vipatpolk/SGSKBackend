@@ -1,10 +1,11 @@
-from fastapi import FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from config.settings import get_settings
 from routers import nav, portfolio, price, share_lot
+from utils.auth import verify_api_key
 from utils.http_client import lifespan
 
 
@@ -35,9 +36,7 @@ class DirectAccessBlockMiddleware(BaseHTTPMiddleware):
 
         # 1. Block direct browser navigation (e.g. typing URL in browser, opening new tab)
         is_browser_direct_navigation = (
-            sec_fetch_dest == "document"
-            or sec_fetch_mode == "navigate"
-            or ("text/html" in accept and not app_source)
+            sec_fetch_dest == "document" or sec_fetch_mode == "navigate" or ("text/html" in accept and not app_source)
         )
         if is_browser_direct_navigation and not app_source:
             return Response(
@@ -87,10 +86,6 @@ app.include_router(share_lot.router)
 app.include_router(price.router)
 app.include_router(nav.router)
 app.include_router(portfolio.router)
-
-
-from utils.auth import verify_api_key
-from fastapi import Depends
 
 
 @app.get("/")
