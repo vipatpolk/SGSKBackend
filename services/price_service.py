@@ -1,5 +1,6 @@
 import asyncio
 import re
+import time
 import urllib.parse
 from typing import Any
 
@@ -158,10 +159,46 @@ class PriceService:
 
         tickers, names = await asyncio.gather(tickers_task, names_task)
         name_map = dict(names)
-
         price_map = {}
         for symbol in symbols:
             price, currency = self._resolve_crypto_price(symbol, tickers)
             dynamic_name = name_map.get(symbol, "")
             price_map[symbol] = PriceData(symbol=symbol, name=dynamic_name, price=price, currency=currency)
         return price_map
+
+    async def _fetch_single_stock_dividends(self, symbol: str) -> tuple[str, dict[str, Any]]:
+        yahoo_symbol = to_yahoo_symbol(symbol)
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(yahoo_symbol)}?range=5y&interval=1mo&events=div"
+        try:
+            async with get_outbound_semaphore():
+                res = await self.client.get(url)
+            res.raise_for_status()
+            result = res.json().get("chart", {}).get("result", [{}])[0]
+            events = result.get("events", {})
+            div_map = events.get("dividends", {})
+            div_list = []
+            now_ts = time.time()
+            one_year_ago_ts = now_ts - (365 * 24 * 3600)
+            trailing_12m = 0.0
+            if isinstance(div_map, dict):
+                for ts_str, d in div_map.items():
+                    amt = float(d.get("amount", 0.0))
+                    dt = d.get("date", int(ts_str) if ts_str.isdigit() else 0)
+                    div_list.append({"amount": amt, "date": dt})
+                    if dt >= one_year_ago_ts:
+                        trailing_12m += amt
+
+            div_list.sort(key=lambda x: x.get("date", 0), reverse=True)
+            return symbol, {
+                "trailing_12m_dps": trailing_12m,
+                "dividends": div_list
+            }
+        except Exception:
+            return symbol, {"trailing_12m_dps": 0.0, "dividends": []}
+
+    async def fetch_stock_dividends(self, symbols: list[str]) -> dict[str, dict[str, Any]]:
+        unique = list(set([s for s in symbols if not self._is_crypto({"symbol": s}) and not self._is_fund({"symbol": s})]))
+        if not unique:
+            return {}
+        results = await asyncio.gather(*[self._fetch_single_stock_dividends(sym) for sym in unique])
+        return dict(results)

@@ -202,6 +202,8 @@ class ShareLotService:
                 parsed_tx_type = 'EXCHANGE_OUT'
             elif any(kw in row_str for kw in ['EXCHANGE IN', 'EXCHNAGE IN', 'SWITCH IN', 'EX-IN', 'SW-IN', 'EXCHANGE_IN']):
                 parsed_tx_type = 'EXCHANGE_IN'
+            elif any(kw in row_str for kw in ['DIVIDEND', 'DIV', 'INCOME', 'DISTRIBUTION']):
+                parsed_tx_type = 'DIVIDEND'
             elif any(kw in row_str for kw in ['EXCHANGE', 'EXCHNAGE', 'SWITCH', 'SWTICH']) and not parsed_tx_type:
                 parsed_tx_type = 'EXCHANGE'
 
@@ -254,6 +256,17 @@ class ShareLotService:
                 tx_type, is_exchange = self._classify_transaction_type(tx, is_buy)
                 if is_exchange:
                     exchange_count += 1
+
+                if tx_type == 'DIVIDEND':
+                    running_avg = running_total_cost / running_shares if running_shares > 0 else 0
+                    processed_tx_list.append(SymbolTransaction(
+                        id=tx_id, symbol=tx.symbol, date=tx.date, type='DIVIDEND',
+                        quantity=qty, rawQuantity=tx.quantity, price=price, totalAmount=total_amount,
+                        currency=tx.currency, assetType=tx.assetType, runningShares=running_shares,
+                        runningTotalCost=running_total_cost, runningAverageCost=running_avg,
+                        exchangeFrom=tx.exchangeFrom, exchangeTo=tx.exchangeTo
+                    ))
+                    continue
 
                 if tx_type in ('BUY', 'EXCHANGE_IN') or (is_buy and tx_type != 'EXCHANGE_OUT'):
                     if not is_exchange:
@@ -380,6 +393,9 @@ class ShareLotService:
 
     @staticmethod
     def _classify_transaction_type(tx: Transaction, is_buy: bool) -> tuple[str, bool]:
+        if tx.txType and any(kw in tx.txType for kw in ['DIVIDEND', 'DIV', 'INCOME', 'DISTRIBUTION']):
+            return 'DIVIDEND', False
+
         is_exchange_out = bool(
             tx.exchangeTo or
             (tx.txType and any(kw in tx.txType for kw in ['EXCHANGE_OUT', 'EXCHANGE OUT', 'EXCHNAGE OUT', 'SWITCH_OUT', 'SWITCH OUT', 'EX-OUT', 'SW-OUT']))

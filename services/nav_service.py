@@ -160,3 +160,44 @@ class NavService:
                 "originalSymbol": symbol,
                 "data": PriceData(symbol=symbol, name=fund["name"], price=0.0, currency="THB"),
             }
+
+    async def fetch_fund_dividend_history(self, symbol: str) -> list[dict[str, Any]]:
+        clean_symbol = re.sub(r"(?i)\.BKFUND$", "", symbol).strip()
+        sym_upper = clean_symbol.upper()
+
+        headers = self.headers
+        try:
+            # 1. Try direct class_abbr_name query
+            url1 = f"{SEC_API_CONFIG['baseUrl']}/daily-info/dividend-history?class_abbr_name={urllib.parse.quote(clean_symbol)}"
+            async with get_outbound_semaphore():
+                res = await self.client.get(url1, headers=headers)
+            if res.status_code == 200:
+                items = res.json().get("items", [])
+                if items:
+                    return items
+
+            # 2. Try by fund profile proj_id fallback
+            profile = await self.fetch_fund_profile(clean_symbol, sym_upper)
+            if profile and profile.get("proj_id"):
+                proj_id = profile["proj_id"]
+                url2 = f"{SEC_API_CONFIG['baseUrl']}/daily-info/dividend-history?proj_id={urllib.parse.quote(proj_id)}"
+                async with get_outbound_semaphore():
+                    res2 = await self.client.get(url2, headers=headers)
+                if res2.status_code == 200:
+                    items = res2.json().get("items", [])
+                    filtered = [
+                        i for i in items
+                        if str(i.get("class_abbr_name") or i.get("fund_class_name") or "").upper() == sym_upper
+                    ]
+                    return filtered if filtered else items
+            return []
+        except Exception:
+            return []
+
+    async def fetch_all_fund_dividends(self, symbols: list[str]) -> dict[str, list[dict[str, Any]]]:
+        unique_symbols = list(set(symbols))
+        if not unique_symbols:
+            return {}
+
+        results = await asyncio.gather(*[self.fetch_fund_dividend_history(sym) for sym in unique_symbols])
+        return {sym: res for sym, res in zip(unique_symbols, results)}

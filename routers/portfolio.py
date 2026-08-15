@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, Query
 
 from models.allocation import PortfolioAllocationResponse, TargetAllocationRequest
+from models.dividend import PortfolioDividendResponse
 from models.performance import PortfolioPerformanceResponse
 from models.portfolio import PortfolioHoldingsResponse
 from services.allocation_service import AllocationService
+from services.dividend_service import DividendService
 from services.performance_service import PerformanceService
 from services.valuation_service import ValuationService
 from utils.auth import verify_api_key
@@ -13,6 +15,7 @@ router = APIRouter(prefix="/portfolio", tags=["portfolio"], dependencies=[Depend
 valuation_service = ValuationService()
 performance_service = PerformanceService(valuation_service=valuation_service)
 allocation_service = AllocationService(valuation_service=valuation_service)
+dividend_service = DividendService(valuation_service=valuation_service)
 
 
 @router.get("/holdings", response_model=PortfolioHoldingsResponse)
@@ -45,3 +48,11 @@ async def get_portfolio_allocation(
 ):
     targets = req.targetAllocation if req else None
     return await allocation_service.calculate_allocation(targets=targets, currency=currency)
+
+
+@router.get("/dividend", response_model=PortfolioDividendResponse)
+async def get_portfolio_dividend(
+    currency: str = Query("THB", description="Display currency (THB or USD)"),
+    tab_id: str = Query("all", description="Asset tab ID"),
+):
+    return await dividend_service.get_dividend_analytics(currency=currency, tab_id=tab_id)
