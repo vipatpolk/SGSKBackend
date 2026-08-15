@@ -1,3 +1,4 @@
+import re
 
 
 def normalize_asset_type(raw_type: str) -> str | None:
@@ -14,6 +15,7 @@ def normalize_asset_type(raw_type: str) -> str | None:
         return 'mutual-fund'
     return None
 
+
 def get_asset_type(asset_type: str | None = None, symbol: str | None = None) -> str:
     non_asset_types = {'closed-position', 'all', 'unknown'}
     if asset_type and asset_type not in non_asset_types:
@@ -24,13 +26,18 @@ def get_asset_type(asset_type: str | None = None, symbol: str | None = None) -> 
 
     if symbol:
         sym = symbol.upper()
-        if sym.endswith('.BKFUND'): return 'mutual-fund'
-        if sym.endswith('.BK'): return 'thai-stock'
-        if sym.endswith('.CRYPTO'): return 'crypto'
+        if sym.endswith('.BKFUND'):
+            return 'mutual-fund'
+        if sym.endswith('.BK'):
+            return 'thai-stock'
+        if sym.endswith('.CRYPTO'):
+            return 'crypto'
     return 'us-stock'
 
+
 def to_yahoo_symbol(symbol: str) -> str:
-    if not symbol: return ''
+    if not symbol:
+        return ''
     trimmed = symbol.strip()
     if trimmed.upper().endswith('.BKFUND'):
         return trimmed[:-7]
@@ -40,9 +47,49 @@ def to_yahoo_symbol(symbol: str) -> str:
         return trimmed[:-7]
     return trimmed.replace('.', '-').replace('/', '-')
 
+
 def resolve_quote_currency(quote: str) -> str:
-    if not quote: return ''
+    if not quote:
+        return ''
     q = quote.upper()
-    if q == 'THB': return 'THB'
-    if 'USD' in q or q == 'DAI': return 'USD'
+    if q == 'THB':
+        return 'THB'
+    if 'USD' in q or q == 'DAI':
+        return 'USD'
     return q
+
+
+def display_symbol(symbol: str) -> str:
+    if not symbol:
+        return ''
+    return re.sub(r'(?i)\.(BKFUND|BK|CRYPTO)$', '', symbol.strip())
+
+
+def convert_currency(amount: float, from_curr: str, to_curr: str, exchange_rate: float) -> float:
+    norm_from = 'USD' if from_curr.upper() == 'USDT' else from_curr.upper()
+    norm_to = 'USD' if to_curr.upper() == 'USDT' else to_curr.upper()
+
+    if norm_from == norm_to:
+        return amount
+    if exchange_rate <= 0:
+        return amount
+
+    if norm_from == 'USD' and norm_to == 'THB':
+        return amount * exchange_rate
+    if norm_from == 'THB' and norm_to == 'USD':
+        return amount / exchange_rate
+
+    return amount
+
+
+ASSET_TYPE_LABELS: dict[str, str] = {
+    'us-stock': 'U.S. Stock',
+    'thai-stock': 'Thai Stock',
+    'crypto': 'Cryptocurrency',
+    'mutual-fund': 'Mutual Fund',
+}
+
+
+def get_asset_type_label(asset_type: str | None = None, symbol: str | None = None) -> str:
+    t = get_asset_type(asset_type, symbol)
+    return ASSET_TYPE_LABELS.get(t, t.replace('-', ' ').title())

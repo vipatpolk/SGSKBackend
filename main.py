@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from config.settings import get_settings
-from routers import nav, price, share_lot
+from routers import nav, portfolio, price, share_lot
 from utils.http_client import lifespan
 
 
@@ -41,6 +41,7 @@ app.add_middleware(
 app.include_router(share_lot.router)
 app.include_router(price.router)
 app.include_router(nav.router)
+app.include_router(portfolio.router)
 
 
 @app.get("/")

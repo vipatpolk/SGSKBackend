@@ -16,6 +16,11 @@ This is the Python **FastAPI** backend for the [ShareLot](https://github.com/vip
 
 ## API Endpoints
 
+### Portfolio & Holdings
+- `GET /portfolio/holdings` — Unified holdings valuation endpoint returning fully calculated open positions, closed positions, lot-level valuations, and portfolio KPI summary metrics in target currency (`THB` or `USD`).
+- `GET /portfolio/performance` — Comprehensive investment returns analytics with dynamic timeframe filtering (`YTD`, `1M`, `3M`, `6M`, `1Y`, `ALL`, or custom date bounds), asset class performance, and Top Gainers / Losers leaderboards.
+- `POST /portfolio/allocation` — Target asset allocation and rebalancing engine calculating actual vs target weights, actionable monetary buy/sell deltas, currency exposure (USD vs THB), and concentration weights.
+
 ### Share Lot & Transactions
 - `GET /share-lot/sheet/{tab_id}` — Fetches transaction logs and calculates FIFO share lots for a specific asset category (`us-stock`, `thai-stock`, `crypto`, `mutual-fund`, `closed-position`).
 - `GET /share-lot/sheets` — Fetches and aggregates transaction logs across all active tabs in the portfolio.
