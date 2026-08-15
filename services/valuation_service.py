@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -40,7 +40,7 @@ class ValuationService:
         cache_key = f"valuation_{tab_id}_{target_currency}"
         cached = ttl_cache.get(cache_key)
         if cached is not None:
-            return cached
+            return cast(PortfolioHoldingsResponse, cached)
 
         is_all = tab_id == "all"
 

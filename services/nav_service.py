@@ -49,7 +49,7 @@ class NavService:
         cache_key = f"sec_nav_single_{symbol}"
         cached = ttl_cache.get(cache_key)
         if cached is not None:
-            return cached
+            return cast(dict[str, Any], cached)
 
         clean_symbol = re.sub(r"(?i)\.BKFUND$", "", symbol).strip()
         sym_upper = clean_symbol.upper()
@@ -193,7 +193,7 @@ class NavService:
         cache_key = f"sec_div_{symbol}"
         cached = ttl_cache.get(cache_key)
         if cached is not None:
-            return cached
+            return cast(list[dict[str, Any]], cached)
 
         clean_symbol = re.sub(r"(?i)\.BKFUND$", "", symbol).strip()
         sym_upper = clean_symbol.upper()

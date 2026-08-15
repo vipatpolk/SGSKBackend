@@ -2,7 +2,7 @@ import asyncio
 import re
 import time
 import urllib.parse
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -49,7 +49,7 @@ class PriceService:
         cache_key = f"rate_{from_currency}_{to_currency}"
         cached = ttl_cache.get(cache_key)
         if cached is not None:
-            return cached
+            return cast(float, cached)
 
         pair = f"{from_currency}{to_currency}=X"
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(pair)}?range=1d&interval=1d&includePrePost=false"

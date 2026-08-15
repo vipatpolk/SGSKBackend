@@ -1,6 +1,7 @@
 import asyncio
 import csv
 import io
+from typing import cast
 
 import httpx
 
@@ -33,7 +34,7 @@ class ShareLotService:
         cache_key = f"sheet_{tab_id}"
         cached = ttl_cache.get(cache_key)
         if cached is not None:
-            return cached
+            return cast(SheetResult, cached)
 
         tab = next((t for t in ASSET_TABS if t["id"] == tab_id), None)
         if not tab or not tab["sheetGid"]:
@@ -63,7 +64,7 @@ class ShareLotService:
         cache_key = "sheet_all"
         cached = ttl_cache.get(cache_key)
         if cached is not None:
-            return cached
+            return cast(SheetResult, cached)
 
         sheet_tabs = [t for t in ASSET_TABS if t["sheetGid"]]
 
