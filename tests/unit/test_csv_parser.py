@@ -7,6 +7,7 @@ from services.share_lot_service import ShareLotService
 def service():
     return ShareLotService()
 
+
 @pytest.mark.unit
 def test_parse_valid_csv(service, sample_csv_us_stock):
     transactions = service.parse_csv(sample_csv_us_stock, "us-stock")
@@ -25,6 +26,7 @@ def test_parse_valid_csv(service, sample_csv_us_stock):
     assert t3.quantity == -8.0  # SELL transaction
     assert t3.price == 170.0
 
+
 @pytest.mark.unit
 def test_parse_comma_formatted_numbers(service, sample_csv_thai_stock):
     transactions = service.parse_csv(sample_csv_thai_stock, "thai-stock")
@@ -36,10 +38,12 @@ def test_parse_comma_formatted_numbers(service, sample_csv_thai_stock):
     assert t1.price == 35.50
     assert t1.currency == "THB"
 
+
 @pytest.mark.unit
 def test_parse_empty_or_header_only_csv(service):
     assert service.parse_csv("", "us-stock") == []
     assert service.parse_csv("Symbol,Date,Quantity,Price,Currency", "us-stock") == []
+
 
 @pytest.mark.unit
 def test_parse_csv_skips_malformed_rows(service):
@@ -58,7 +62,7 @@ NVDA,2026-01-03,5,500.00,USD
 @pytest.mark.unit
 def test_parse_exported_5_column_csv_roundtrip(service):
     """TC-BE-01: Verify exported 5-column CSV string with BOM marker parses back correctly."""
-    exported_csv = "\uFEFFSymbol,Date,Quantity,Price,Currency\r\nAAPL,2026-01-05,10,150.00,USD\r\nAAPL,2026-01-20,-8,170.00,USD\r\nBTC.CRYPTO,2026-02-01,0.5,95000.00,USD\r\n"
+    exported_csv = "\ufeffSymbol,Date,Quantity,Price,Currency\r\nAAPL,2026-01-05,10,150.00,USD\r\nAAPL,2026-01-20,-8,170.00,USD\r\nBTC.CRYPTO,2026-02-01,0.5,95000.00,USD\r\n"
     transactions = service.parse_csv(exported_csv, "all")
 
     assert len(transactions) == 3
@@ -103,5 +107,3 @@ K-CASH,2026-03-01,-1000,1.55,THB,,K-USA
     assert k_cash_summary.exchangeCount == 1
     assert k_cash_summary.transactions[0].type == "EXCHANGE_OUT"
     assert k_cash_summary.transactions[0].exchangeTo == "K-USA"
-
-

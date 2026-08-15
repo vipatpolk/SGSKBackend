@@ -1,6 +1,7 @@
-import pytest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from models.portfolio import PortfolioHoldingsResponse, PortfolioPosition, PortfolioSummary
 from models.transaction import Transaction
@@ -124,27 +125,31 @@ def mock_valuation_service():
 @pytest.fixture
 def mock_price_service():
     service = MagicMock()
-    service.fetch_stock_dividends = AsyncMock(return_value={
-        "PTT.BK": {"trailing_12m_dps": 2.6, "dividends": [{"amount": 1.4, "date": 1759287600}]},
-        "AAPL": {"trailing_12m_dps": 1.0, "dividends": [{"amount": 0.25, "date": 1762785000}]},
-    })
+    service.fetch_stock_dividends = AsyncMock(
+        return_value={
+            "PTT.BK": {"trailing_12m_dps": 2.6, "dividends": [{"amount": 1.4, "date": 1759287600}]},
+            "AAPL": {"trailing_12m_dps": 1.0, "dividends": [{"amount": 0.25, "date": 1762785000}]},
+        }
+    )
     return service
 
 
 @pytest.fixture
 def mock_nav_service():
     service = MagicMock()
-    service.fetch_all_fund_dividends = AsyncMock(return_value={
-        "K-USA-A(D).BKFUND": [
-            {
-                "proj_id": "M0159_2555",
-                "class_abbr_name": "K-USA-A(D)",
-                "book_close_date": "2026-04-30",
-                "dividend_date": "2026-05-15",
-                "dividend_value": 0.5,
-            }
-        ]
-    })
+    service.fetch_all_fund_dividends = AsyncMock(
+        return_value={
+            "K-USA-A(D).BKFUND": [
+                {
+                    "proj_id": "M0159_2555",
+                    "class_abbr_name": "K-USA-A(D)",
+                    "book_close_date": "2026-04-30",
+                    "dividend_date": "2026-05-15",
+                    "dividend_value": 0.5,
+                }
+            ]
+        }
+    )
     return service
 
 
@@ -216,7 +221,7 @@ async def test_dividend_service_calculation(mock_valuation_service, mock_price_s
 async def test_dividend_service_shares_on_ex_date():
     """Verify that dividend calculations respect exact share quantities held on ex-dates."""
     service = DividendService()
-    
+
     # Position currently open with 500 shares
     pos = PortfolioPosition(
         symbol="ADVANC.BK",
@@ -236,15 +241,39 @@ async def test_dividend_service_shares_on_ex_date():
         hasPrice=True,
         lots=[],
     )
-    
+
     # Trade history: Bought 300 on 2025-01-10, Bought 700 on 2025-06-01, Sold 500 on 2025-10-01
     raw_txs = [
-        Transaction(symbol="ADVANC.BK", date="2025-01-10", quantity=300.0, price=200.0, currency="THB", assetType="thai-stock", txType="BUY"),
-        Transaction(symbol="ADVANC.BK", date="2025-06-01", quantity=700.0, price=205.0, currency="THB", assetType="thai-stock", txType="BUY"),
-        Transaction(symbol="ADVANC.BK", date="2025-10-01", quantity=-500.0, price=215.0, currency="THB", assetType="thai-stock", txType="SELL"),
+        Transaction(
+            symbol="ADVANC.BK",
+            date="2025-01-10",
+            quantity=300.0,
+            price=200.0,
+            currency="THB",
+            assetType="thai-stock",
+            txType="BUY",
+        ),
+        Transaction(
+            symbol="ADVANC.BK",
+            date="2025-06-01",
+            quantity=700.0,
+            price=205.0,
+            currency="THB",
+            assetType="thai-stock",
+            txType="BUY",
+        ),
+        Transaction(
+            symbol="ADVANC.BK",
+            date="2025-10-01",
+            quantity=-500.0,
+            price=215.0,
+            currency="THB",
+            assetType="thai-stock",
+            txType="SELL",
+        ),
     ]
-    
-    # Dividend events: 
+
+    # Dividend events:
     # Event 1 on 2025-04-15 (User held 300 shares): DPS 4.0 -> 300 * 4.0 = 1200 gross
     # Event 2 on 2025-08-20 (User held 300 + 700 = 1000 shares): DPS 5.0 -> 1000 * 5.0 = 5000 gross
     # Event 3 on 2025-11-15 (User held 1000 - 500 = 500 shares): DPS 4.5 -> 500 * 4.5 = 2250 gross
@@ -255,10 +284,10 @@ async def test_dividend_service_shares_on_ex_date():
                 {"amount": 4.0, "date": int(datetime(2025, 4, 15, tzinfo=timezone.utc).timestamp())},
                 {"amount": 5.0, "date": int(datetime(2025, 8, 20, tzinfo=timezone.utc).timestamp())},
                 {"amount": 4.5, "date": int(datetime(2025, 11, 15, tzinfo=timezone.utc).timestamp())},
-            ]
+            ],
         }
     }
-    
+
     res = service.calculate_dividend_analytics(
         open_positions=[pos],
         closed_positions=[],
@@ -270,23 +299,23 @@ async def test_dividend_service_shares_on_ex_date():
         total_portfolio_value=110000.0,
         total_open_invested=100000.0,
     )
-    
+
     assert len(res.records) == 3
     # Records are newest first
     r3 = next(r for r in res.records if r.date == "2025-11-15")
     r2 = next(r for r in res.records if r.date == "2025-08-20")
     r1 = next(r for r in res.records if r.date == "2025-04-15")
-    
+
     assert r1.shares == 300.0
     assert r1.grossAmount == 1200.0
     assert r1.withholdingTax == 120.0
     assert r1.netAmount == 1080.0
-    
+
     assert r2.shares == 1000.0
     assert r2.grossAmount == 5000.0
     assert r2.withholdingTax == 500.0
     assert r2.netAmount == 4500.0
-    
+
     assert r3.shares == 500.0
     assert r3.grossAmount == 2250.0
     assert r3.withholdingTax == 225.0

@@ -18,6 +18,7 @@ async def test_live_google_sheet_csv_connectivity():
         assert "Symbol" in res.text
         assert "Quantity" in res.text
 
+
 @pytest.mark.live_e2e
 @pytest.mark.asyncio
 async def test_live_yahoo_finance_price_fetch():

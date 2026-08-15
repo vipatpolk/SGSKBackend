@@ -20,7 +20,9 @@ dividend_service = DividendService(valuation_service=valuation_service)
 
 @router.get("/holdings", response_model=PortfolioHoldingsResponse)
 async def get_portfolio_holdings(
-    tab_id: str = Query("all", description="Asset tab ID (all, us-stock, thai-stock, crypto, mutual-fund, closed-position)"),
+    tab_id: str = Query(
+        "all", description="Asset tab ID (all, us-stock, thai-stock, crypto, mutual-fund, closed-position)"
+    ),
     currency: str = Query("THB", description="Display currency (THB or USD)"),
 ):
     return await valuation_service.get_portfolio_holdings(tab_id=tab_id, currency=currency)

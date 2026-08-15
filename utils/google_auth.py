@@ -20,14 +20,10 @@ def get_google_auth_headers() -> dict[str, str]:
 
     try:
         if os.path.exists(sa_info):
-            creds = service_account.Credentials.from_service_account_file(
-                sa_info, scopes=SCOPES
-            )
+            creds = service_account.Credentials.from_service_account_file(sa_info, scopes=SCOPES)
         else:
             info_dict = json.loads(sa_info)
-            creds = service_account.Credentials.from_service_account_info(
-                info_dict, scopes=SCOPES
-            )
+            creds = service_account.Credentials.from_service_account_info(info_dict, scopes=SCOPES)
 
         creds.refresh(Request())
         if creds.token:

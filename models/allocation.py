@@ -31,10 +31,10 @@ class HoldingConcentration(BaseModel):
 
 class TargetAllocationRequest(BaseModel):
     targetAllocation: dict[str, float] = {
-        'us-stock': 40.0,
-        'thai-stock': 30.0,
-        'crypto': 15.0,
-        'mutual-fund': 15.0,
+        "us-stock": 40.0,
+        "thai-stock": 30.0,
+        "crypto": 15.0,
+        "mutual-fund": 15.0,
     }
 
 

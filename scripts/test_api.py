@@ -12,4 +12,5 @@ async def test_api():
         data = response.json()
         print("Summaries length:", len(data.get("summaries", [])))
 
+
 asyncio.run(test_api())

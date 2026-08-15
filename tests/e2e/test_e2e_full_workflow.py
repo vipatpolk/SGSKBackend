@@ -19,9 +19,7 @@ def test_e2e_full_user_portfolio_workflow(api_client, mocked_external_apis):
     assert "AAPL" in symbols
 
     # Step 3: Fetch market prices and FX rates for the portfolio symbols
-    payload = {
-        "summaries": [{"symbol": sym, "assetType": "us-stock"} for sym in symbols]
-    }
+    payload = {"summaries": [{"symbol": sym, "assetType": "us-stock"} for sym in symbols]}
     price_res = api_client.post("/price/fetch-prices", json=payload)
     assert price_res.status_code == 200
     price_data = price_res.json()

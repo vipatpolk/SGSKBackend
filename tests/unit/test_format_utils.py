@@ -18,6 +18,7 @@ def test_normalize_asset_type():
     assert normalize_asset_type("Unknown Type") is None
     assert normalize_asset_type("") is None
 
+
 @pytest.mark.unit
 def test_get_asset_type():
     assert get_asset_type("thai-stock", "AAPL") == "thai-stock"
@@ -27,6 +28,7 @@ def test_get_asset_type():
     assert get_asset_type("unknown", "BTC.CRYPTO") == "crypto"
     assert get_asset_type(None, "AAPL") == "us-stock"
 
+
 @pytest.mark.unit
 def test_to_yahoo_symbol():
     assert to_yahoo_symbol("AAPL") == "AAPL"
@@ -35,6 +37,7 @@ def test_to_yahoo_symbol():
     assert to_yahoo_symbol("K-CHANGE.BKFUND") == "K-CHANGE"
     assert to_yahoo_symbol("BTC.CRYPTO") == "BTC"
     assert to_yahoo_symbol("") == ""
+
 
 @pytest.mark.unit
 def test_resolve_quote_currency():

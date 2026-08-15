@@ -2,7 +2,7 @@ import asyncio
 import re
 import urllib.parse
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -65,7 +65,9 @@ class NavService:
 
     async def fetch_fund_profile(self, clean_symbol: str, sym_upper: str) -> Any:
         try:
-            url1 = f"{SEC_API_CONFIG['baseUrl']}/general-info/profiles?fund_class_name={urllib.parse.quote(clean_symbol)}"
+            url1 = (
+                f"{SEC_API_CONFIG['baseUrl']}/general-info/profiles?fund_class_name={urllib.parse.quote(clean_symbol)}"
+            )
             async with get_outbound_semaphore():
                 res = await self.client.get(url1, headers=self.headers)
             res.raise_for_status()
@@ -172,9 +174,9 @@ class NavService:
             async with get_outbound_semaphore():
                 res = await self.client.get(url1, headers=headers)
             if res.status_code == 200:
-                items = res.json().get("items", [])
-                if items:
-                    return items
+                raw_items = res.json().get("items", [])
+                if raw_items and isinstance(raw_items, list):
+                    return cast(list[dict[str, Any]], raw_items)
 
             # 2. Try by fund profile proj_id fallback
             profile = await self.fetch_fund_profile(clean_symbol, sym_upper)
@@ -184,12 +186,15 @@ class NavService:
                 async with get_outbound_semaphore():
                     res2 = await self.client.get(url2, headers=headers)
                 if res2.status_code == 200:
-                    items = res2.json().get("items", [])
-                    filtered = [
-                        i for i in items
-                        if str(i.get("class_abbr_name") or i.get("fund_class_name") or "").upper() == sym_upper
-                    ]
-                    return filtered if filtered else items
+                    raw_items2 = res2.json().get("items", [])
+                    if isinstance(raw_items2, list):
+                        items2 = cast(list[dict[str, Any]], raw_items2)
+                        filtered = [
+                            i
+                            for i in items2
+                            if str(i.get("class_abbr_name") or i.get("fund_class_name") or "").upper() == sym_upper
+                        ]
+                        return filtered if filtered else items2
             return []
         except Exception:
             return []

@@ -12,6 +12,7 @@ def test_e2e_get_share_lot_sheet_us_stock(api_client, mocked_external_apis):
     assert data["totalCostByCurrency"]["USD"] > 0
     assert any(s["symbol"] == "AAPL" for s in data["summaries"])
 
+
 @pytest.mark.e2e
 def test_e2e_get_share_lot_sheet_invalid_tab(api_client):
     response = api_client.get("/share-lot/sheet/non-existent-tab")
@@ -19,6 +20,7 @@ def test_e2e_get_share_lot_sheet_invalid_tab(api_client):
     data = response.json()
     assert "error" in data
     assert "Invalid tab id" in data["error"]
+
 
 @pytest.mark.e2e
 def test_e2e_get_all_share_lots(api_client, mocked_external_apis):

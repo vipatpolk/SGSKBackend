@@ -236,12 +236,18 @@ class PerformanceService:
 
         # 5. Top Gainers & Losers
         top_gainers = [s for s in symbol_performance if s.totalReturnPercent > 0][:5]
-        top_losers = sorted([s for s in symbol_performance if s.totalReturnPercent < 0], key=lambda x: x.totalReturnPercent)[:5]
+        top_losers = sorted(
+            [s for s in symbol_performance if s.totalReturnPercent < 0], key=lambda x: x.totalReturnPercent
+        )[:5]
 
         # 6. Overall Portfolio Summary with Date-Filtered Realized PL
         total_unrealized_pl = open_value_total - open_invested_total
-        total_unrealized_pl_pct = (total_unrealized_pl / open_invested_total * 100.0) if open_invested_total > 0 else 0.0
-        total_realized_pl_pct = (closed_realized_total / closed_invested_total * 100.0) if closed_invested_total > 0 else 0.0
+        total_unrealized_pl_pct = (
+            (total_unrealized_pl / open_invested_total * 100.0) if open_invested_total > 0 else 0.0
+        )
+        total_realized_pl_pct = (
+            (closed_realized_total / closed_invested_total * 100.0) if closed_invested_total > 0 else 0.0
+        )
         total_invested = open_invested_total + closed_invested_total
         total_return = total_unrealized_pl + closed_realized_total
         total_return_pct = (total_return / total_invested * 100.0) if total_invested > 0 else 0.0

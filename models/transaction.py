@@ -1,4 +1,3 @@
-
 from pydantic import BaseModel
 
 
@@ -13,6 +12,7 @@ class Transaction(BaseModel):
     exchangeTo: str | None = None
     txType: str | None = None
 
+
 class ShareLot(BaseModel):
     symbol: str
     purchaseDate: str
@@ -20,6 +20,7 @@ class ShareLot(BaseModel):
     costBasis: float
     totalCost: float
     assetType: str
+
 
 class ClosedShareLot(BaseModel):
     symbol: str
@@ -35,6 +36,7 @@ class ClosedShareLot(BaseModel):
     currency: str
     assetType: str
 
+
 class SymbolSummary(BaseModel):
     symbol: str
     totalShares: float
@@ -43,6 +45,7 @@ class SymbolSummary(BaseModel):
     currency: str
     lots: list[ShareLot]
     assetType: str
+
 
 class ClosedSymbolSummary(BaseModel):
     symbol: str
@@ -58,11 +61,12 @@ class ClosedSymbolSummary(BaseModel):
     lots: list[ClosedShareLot]
     assetType: str
 
+
 class SymbolTransaction(BaseModel):
     id: str
     symbol: str
     date: str
-    type: str # 'BUY' | 'SELL' | 'EXCHANGE' | 'EXCHANGE_IN' | 'EXCHANGE_OUT'
+    type: str  # 'BUY' | 'SELL' | 'EXCHANGE' | 'EXCHANGE_IN' | 'EXCHANGE_OUT'
     quantity: float
     rawQuantity: float
     price: float
@@ -76,6 +80,7 @@ class SymbolTransaction(BaseModel):
     realizedPLPercent: float | None = None
     exchangeFrom: str | None = None
     exchangeTo: str | None = None
+
 
 class SymbolTransactionSummary(BaseModel):
     symbol: str
@@ -93,12 +98,13 @@ class SymbolTransactionSummary(BaseModel):
     averageSellPrice: float
     netShares: float
     netInvested: float
-    currentStatus: str # 'OPEN' | 'CLOSED'
+    currentStatus: str  # 'OPEN' | 'CLOSED'
     realizedPL: float
     realizedPLPercent: float
     firstTradeDate: str
     lastTradeDate: str
     transactions: list[SymbolTransaction]
+
 
 class SheetResult(BaseModel):
     summaries: list[SymbolSummary]
@@ -112,6 +118,7 @@ class SheetResult(BaseModel):
     totalLots: int
     error: str | None = None
     isClosed: bool | None = False
+
 
 class PriceData(BaseModel):
     symbol: str

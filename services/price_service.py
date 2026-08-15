@@ -189,15 +189,14 @@ class PriceService:
                         trailing_12m += amt
 
             div_list.sort(key=lambda x: x.get("date", 0), reverse=True)
-            return symbol, {
-                "trailing_12m_dps": trailing_12m,
-                "dividends": div_list
-            }
+            return symbol, {"trailing_12m_dps": trailing_12m, "dividends": div_list}
         except Exception:
             return symbol, {"trailing_12m_dps": 0.0, "dividends": []}
 
     async def fetch_stock_dividends(self, symbols: list[str]) -> dict[str, dict[str, Any]]:
-        unique = list(set([s for s in symbols if not self._is_crypto({"symbol": s}) and not self._is_fund({"symbol": s})]))
+        unique = list(
+            set([s for s in symbols if not self._is_crypto({"symbol": s}) and not self._is_fund({"symbol": s})])
+        )
         if not unique:
             return {}
         results = await asyncio.gather(*[self._fetch_single_stock_dividends(sym) for sym in unique])

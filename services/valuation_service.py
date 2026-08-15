@@ -50,15 +50,15 @@ class ValuationService:
         # Extract symbols for price resolution
         candidates: list[dict[str, str]] = []
         seen = set()
-        for o_item in (sheet_result.summaries or []):
+        for o_item in sheet_result.summaries or []:
             if o_item.symbol and o_item.symbol not in seen:
                 seen.add(o_item.symbol)
                 candidates.append({"symbol": o_item.symbol, "assetType": o_item.assetType})
-        for c_item in (sheet_result.closedSummaries or []):
+        for c_item in sheet_result.closedSummaries or []:
             if c_item.symbol and c_item.symbol not in seen:
                 seen.add(c_item.symbol)
                 candidates.append({"symbol": c_item.symbol, "assetType": c_item.assetType})
-        for t_item in (sheet_result.transactionSummaries or []):
+        for t_item in sheet_result.transactionSummaries or []:
             if t_item.symbol and t_item.symbol not in seen:
                 seen.add(t_item.symbol)
                 candidates.append({"symbol": t_item.symbol, "assetType": t_item.assetType})
@@ -97,14 +97,14 @@ class ValuationService:
         closed_realized_total = 0.0
 
         # 1. Open Positions
-        for open_summary in (sheet_result.summaries or []):
+        for open_summary in sheet_result.summaries or []:
             sym = open_summary.symbol
             orig_curr = open_summary.currency
             pd = price_data_map.get(sym)
 
             has_price = bool(pd is not None and getattr(pd, "price", 0.0) > 0)
             raw_price = pd.price if (has_price and pd is not None) else open_summary.averageCost
-            price_curr = (pd.currency if (has_price and pd is not None and pd.currency) else orig_curr)
+            price_curr = pd.currency if (has_price and pd is not None and pd.currency) else orig_curr
 
             # Price converted to target currency
             current_price_converted = convert_currency(raw_price, price_curr, target_currency, exchange_rate)
@@ -126,9 +126,7 @@ class ValuationService:
             valued_lots: list[PortfolioHoldingLot] = []
             for lot in open_summary.lots:
                 lot_cost_converted = convert_currency(lot.totalCost, orig_curr, target_currency, exchange_rate)
-                lot_cost_basis_converted = (
-                    lot_cost_converted / lot.quantity if lot.quantity > 0 else 0.0
-                )
+                lot_cost_basis_converted = lot_cost_converted / lot.quantity if lot.quantity > 0 else 0.0
                 lot_holding_value = lot.quantity * current_price_converted
                 lot_unrealized_pl = lot_holding_value - lot_cost_converted
                 lot_unrealized_pl_pct = (
@@ -176,19 +174,21 @@ class ValuationService:
             )
 
         # 2. Closed Positions
-        for closed_summary in (sheet_result.closedSummaries or []):
+        for closed_summary in sheet_result.closedSummaries or []:
             sym = closed_summary.symbol
             orig_curr = closed_summary.currency
             pd = price_data_map.get(sym)
 
             cost_converted = convert_currency(closed_summary.totalCost, orig_curr, target_currency, exchange_rate)
-            proceeds_converted = convert_currency(closed_summary.totalProceeds, orig_curr, target_currency, exchange_rate)
-            realized_pl_converted = convert_currency(closed_summary.realizedPL, orig_curr, target_currency, exchange_rate)
+            proceeds_converted = convert_currency(
+                closed_summary.totalProceeds, orig_curr, target_currency, exchange_rate
+            )
+            realized_pl_converted = convert_currency(
+                closed_summary.realizedPL, orig_curr, target_currency, exchange_rate
+            )
             realized_pl_pct = (realized_pl_converted / cost_converted * 100.0) if cost_converted > 0 else 0.0
 
-            avg_buy_converted = (
-                cost_converted / closed_summary.closedShares if closed_summary.closedShares > 0 else 0.0
-            )
+            avg_buy_converted = cost_converted / closed_summary.closedShares if closed_summary.closedShares > 0 else 0.0
             avg_sell_converted = (
                 proceeds_converted / closed_summary.closedShares if closed_summary.closedShares > 0 else 0.0
             )

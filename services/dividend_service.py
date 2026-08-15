@@ -13,7 +13,6 @@ from models.dividend import (
     PortfolioDividendResponse,
     SymbolDividendSummary,
 )
-from models.portfolio import PortfolioHoldingsResponse
 from models.transaction import Transaction
 from services.nav_service import NavService
 from services.price_service import PriceService
@@ -188,7 +187,7 @@ class DividendService:
                 m_conv_wht = convert_currency(m_wht, curr, target_currency, exchange_rate)
 
                 rec = DividendRecord(
-                    id=f"api-{sym}-{m_date}-{idx+1}",
+                    id=f"api-{sym}-{m_date}-{idx + 1}",
                     symbol=sym,
                     displaySymbol=display_symbol(sym),
                     date=m_date,
@@ -227,7 +226,9 @@ class DividendService:
                 monthly_map[ym]["net"] += m_conv_net
                 monthly_map[ym]["wht"] += m_conv_wht
                 monthly_map[ym]["recordCount"] += 1
-                monthly_map[ym]["byAssetType"][asset_type] = monthly_map[ym]["byAssetType"].get(asset_type, 0.0) + m_conv_net
+                monthly_map[ym]["byAssetType"][asset_type] = (
+                    monthly_map[ym]["byAssetType"].get(asset_type, 0.0) + m_conv_net
+                )
 
                 # Annual Aggregation
                 if year not in annual_map:
@@ -244,7 +245,9 @@ class DividendService:
                 annual_map[year]["net"] += m_conv_net
                 annual_map[year]["wht"] += m_conv_wht
                 annual_map[year]["recordCount"] += 1
-                annual_map[year]["byAssetType"][asset_type] = annual_map[year]["byAssetType"].get(asset_type, 0.0) + m_conv_net
+                annual_map[year]["byAssetType"][asset_type] = (
+                    annual_map[year]["byAssetType"].get(asset_type, 0.0) + m_conv_net
+                )
 
                 # Asset Type Aggregation
                 if asset_type in asset_type_map:
@@ -312,14 +315,16 @@ class DividendService:
                     d_val = float(d.get("dividend_value", 0.0))
                     d_date = str(d.get("dividend_date", ""))
                     b_date = str(d.get("book_close_date", ""))
-                    recent_dists.append(FundDividendDistribution(
-                        projId=d.get("proj_id", ""),
-                        classAbbrName=d.get("class_abbr_name") or d.get("fund_class_name") or sym,
-                        bookCloseDate=b_date.split(" ")[0] if b_date else "",
-                        dividendDate=d_date.split(" ")[0] if d_date else "",
-                        dividendValue=d_val,
-                        lastUpdDate=str(d.get("last_upd_date", "")),
-                    ))
+                    recent_dists.append(
+                        FundDividendDistribution(
+                            projId=d.get("proj_id", ""),
+                            classAbbrName=d.get("class_abbr_name") or d.get("fund_class_name") or sym,
+                            bookCloseDate=b_date.split(" ")[0] if b_date else "",
+                            dividendDate=d_date.split(" ")[0] if d_date else "",
+                            dividendValue=d_val,
+                            lastUpdDate=str(d.get("last_upd_date", "")),
+                        )
+                    )
                     trailing_dps += d_val
                 recent_dists.sort(key=lambda x: x.dividendDate, reverse=True)
             elif asset_type in ("us-stock", "thai-stock"):
@@ -336,8 +341,10 @@ class DividendService:
             avg_cost = pos.averageCost
             conv_trailing_dps = convert_currency(trailing_dps, curr, target_currency, exchange_rate)
             curr_yield_pct = (conv_trailing_dps / current_price * 100.0) if current_price > 0 else 0.0
-            yoc_pct = (conv_proj_income / cost_basis * 100.0) if cost_basis > 0 else (
-                (trailing_dps / avg_cost * 100.0) if avg_cost > 0 else 0.0
+            yoc_pct = (
+                (conv_proj_income / cost_basis * 100.0)
+                if cost_basis > 0
+                else ((trailing_dps / avg_cost * 100.0) if avg_cost > 0 else 0.0)
             )
 
             if sym not in symbol_summary_map:
@@ -380,16 +387,18 @@ class DividendService:
         for at_key in ("us-stock", "thai-stock", "mutual-fund"):
             at_data = asset_type_map[at_key]
             pct = (at_data["net"] / total_net_dividends * 100.0) if total_net_dividends > 0 else 0.0
-            asset_type_summaries.append(AssetTypeDividendSummary(
-                assetType=at_key,
-                assetTypeLabel=get_asset_type_label(at_key),
-                totalGrossDividends=at_data["gross"],
-                totalNetDividends=at_data["net"],
-                totalWithholdingTax=at_data["wht"],
-                percentageOfTotal=pct,
-                symbolCount=len(at_data["symbols"]),
-                recordCount=at_data["records"],
-            ))
+            asset_type_summaries.append(
+                AssetTypeDividendSummary(
+                    assetType=at_key,
+                    assetTypeLabel=get_asset_type_label(at_key),
+                    totalGrossDividends=at_data["gross"],
+                    totalNetDividends=at_data["net"],
+                    totalWithholdingTax=at_data["wht"],
+                    percentageOfTotal=pct,
+                    symbolCount=len(at_data["symbols"]),
+                    recordCount=at_data["records"],
+                )
+            )
 
         # Monthly and Annual Summaries
         monthly_summaries = [
@@ -410,15 +419,17 @@ class DividendService:
         annual_summaries: list[AnnualDividendSummary] = []
         for y, v in annual_map.items():
             year_months = [m for m in monthly_summaries if m.year == y]
-            annual_summaries.append(AnnualDividendSummary(
-                year=y,
-                grossAmount=v["gross"],
-                netAmount=v["net"],
-                withholdingTax=v["wht"],
-                byAssetType=v["byAssetType"],
-                recordCount=v["recordCount"],
-                monthlyBreakdown=year_months,
-            ))
+            annual_summaries.append(
+                AnnualDividendSummary(
+                    year=y,
+                    grossAmount=v["gross"],
+                    netAmount=v["net"],
+                    withholdingTax=v["wht"],
+                    byAssetType=v["byAssetType"],
+                    recordCount=v["recordCount"],
+                    monthlyBreakdown=year_months,
+                )
+            )
         annual_summaries.sort(key=lambda x: x.year, reverse=True)
 
         # Portfolio aggregates

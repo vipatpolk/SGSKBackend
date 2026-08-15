@@ -8,12 +8,13 @@ from services.price_service import PriceService
 def service():
     return PriceService()
 
+
 @pytest.mark.unit
 def test_resolve_crypto_price(service):
     tickers = [
         {"symbol": "BTCTHB", "price": "3000000.00"},
         {"symbol": "BTCUSDT", "price": "90000.00"},
-        {"symbol": "ETHTHB", "price": "100000.00"}
+        {"symbol": "ETHTHB", "price": "100000.00"},
     ]
 
     price, currency = service._resolve_crypto_price("BTC.CRYPTO", tickers)
@@ -28,6 +29,7 @@ def test_resolve_crypto_price(service):
     assert price == 0.0
     assert currency == ""
 
+
 @pytest.mark.unit
 def test_is_crypto_and_fund_helpers(service):
     assert service._is_crypto({"symbol": "BTC.CRYPTO"}) is True
@@ -38,11 +40,13 @@ def test_is_crypto_and_fund_helpers(service):
     assert service._is_fund({"assetType": "mutual-fund", "symbol": "K-CHANGE"}) is True
     assert service._is_fund({"symbol": "AAPL"}) is False
 
+
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_fetch_exchange_rate_same_currency(service):
     rate = await service.fetch_exchange_rate("USD", "USD")
     assert rate == 1.0
+
 
 @pytest.mark.unit
 @pytest.mark.asyncio

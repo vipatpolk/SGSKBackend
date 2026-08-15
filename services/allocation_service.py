@@ -8,10 +8,10 @@ from services.valuation_service import ValuationService
 from utils.format_utils import get_asset_type_label
 
 DEFAULT_TARGETS: dict[str, float] = {
-    'us-stock': 40.0,
-    'thai-stock': 30.0,
-    'crypto': 15.0,
-    'mutual-fund': 15.0,
+    "us-stock": 40.0,
+    "thai-stock": 30.0,
+    "crypto": 15.0,
+    "mutual-fund": 15.0,
 }
 
 
@@ -50,10 +50,10 @@ class AllocationService:
         targets: dict[str, float],
     ) -> PortfolioAllocationResponse:
         current_values: dict[str, float] = {
-            'us-stock': 0.0,
-            'thai-stock': 0.0,
-            'crypto': 0.0,
-            'mutual-fund': 0.0,
+            "us-stock": 0.0,
+            "thai-stock": 0.0,
+            "crypto": 0.0,
+            "mutual-fund": 0.0,
         }
 
         usd_val = 0.0
@@ -65,15 +65,15 @@ class AllocationService:
             current_values[asset_type] = current_values.get(asset_type, 0.0) + val
 
             orig = pos.originalCurrency.upper()
-            if orig in ('USD', 'USDT'):
+            if orig in ("USD", "USDT"):
                 usd_val += val
-            elif orig == 'THB':
+            elif orig == "THB":
                 thb_val += val
 
         total_value = sum(current_values.values())
 
         # Recommendations
-        default_keys = ['us-stock', 'thai-stock', 'crypto', 'mutual-fund']
+        default_keys = ["us-stock", "thai-stock", "crypto", "mutual-fund"]
         all_keys = list(default_keys)
         for k in list(current_values.keys()) + list(targets.keys()):
             if k not in all_keys:
