@@ -9,8 +9,16 @@ from main import app
 from services.nav_service import NavService
 from services.price_service import PriceService
 from services.share_lot_service import ShareLotService
+from utils.cache import ttl_cache
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
+
+
+@pytest.fixture(autouse=True)
+def clear_ttl_cache_between_tests():
+    ttl_cache.clear()
+    yield
+    ttl_cache.clear()
 
 
 @pytest.fixture

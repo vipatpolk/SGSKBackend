@@ -15,6 +15,7 @@ from models.transaction import (
     SymbolTransactionSummary,
     Transaction,
 )
+from utils.cache import ttl_cache
 from utils.format_utils import get_asset_type, normalize_asset_type
 from utils.google_auth import get_google_auth_headers
 from utils.http_client import get_http_client, get_outbound_semaphore
@@ -29,6 +30,11 @@ class ShareLotService:
         return self._custom_client or get_http_client()
 
     async def fetch_sheet(self, tab_id: str) -> SheetResult:
+        cache_key = f"sheet_{tab_id}"
+        cached = ttl_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         tab = next((t for t in ASSET_TABS if t["id"] == tab_id), None)
         if not tab or not tab["sheetGid"]:
             return self.create_empty_result(f"Invalid tab id: {tab_id}", False)
@@ -47,11 +53,18 @@ class ShareLotService:
             transactions = self.parse_csv(csv_text, asset_type)
             summaries, closed_summaries, transaction_summaries = self.process_transactions(transactions)
 
-            return self.build_result(summaries, closed_summaries, transaction_summaries, transactions, is_closed)
+            result = self.build_result(summaries, closed_summaries, transaction_summaries, transactions, is_closed)
+            ttl_cache.set(cache_key, result, ttl=120.0)
+            return result
         except Exception as e:
             return self.create_empty_result(f"Failed to fetch data: {e}", is_closed)
 
     async def fetch_all_sheets(self) -> SheetResult:
+        cache_key = "sheet_all"
+        cached = ttl_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         sheet_tabs = [t for t in ASSET_TABS if t["sheetGid"]]
 
         async def fetch_and_parse(tab):
@@ -69,7 +82,9 @@ class ShareLotService:
 
         summaries, closed_summaries, transaction_summaries = self.process_transactions(all_transactions)
 
-        return self.build_result(summaries, closed_summaries, transaction_summaries, all_transactions, False)
+        result = self.build_result(summaries, closed_summaries, transaction_summaries, all_transactions, False)
+        ttl_cache.set(cache_key, result, ttl=120.0)
+        return result
 
     def create_empty_result(self, error: str, is_closed: bool) -> SheetResult:
         return SheetResult(
@@ -441,7 +456,7 @@ class ShareLotService:
                         total_realized_cost_basis += matched_cost
 
                     running_shares = max(0.0, running_shares - qty)
-                    running_total_cost = sum(lot.totalCost for lot in open_lots)
+                    running_total_cost = max(0.0, running_total_cost - matched_cost)
                     if running_shares <= EPSILON:
                         running_shares = 0.0
                         running_total_cost = 0.0

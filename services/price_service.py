@@ -8,8 +8,22 @@ import httpx
 
 from models.transaction import PriceData
 from services.nav_service import NavService
+from utils.cache import ttl_cache
 from utils.format_utils import resolve_quote_currency, to_yahoo_symbol
 from utils.http_client import get_http_client, get_outbound_semaphore
+
+COMMON_CRYPTO_NAMES: dict[str, str] = {
+    "BTC": "Bitcoin",
+    "ETH": "Ethereum",
+    "SOL": "Solana",
+    "USDT": "Tether USDt",
+    "BNB": "BNB",
+    "XRP": "XRP",
+    "ADA": "Cardano",
+    "DOGE": "Dogecoin",
+    "DOT": "Polkadot",
+    "AVAX": "Avalanche",
+}
 
 
 class PriceService:
@@ -32,6 +46,11 @@ class PriceService:
         if from_currency == to_currency:
             return 1.0
 
+        cache_key = f"rate_{from_currency}_{to_currency}"
+        cached = ttl_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         pair = f"{from_currency}{to_currency}=X"
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(pair)}?range=1d&interval=1d&includePrePost=false"
         try:
@@ -39,7 +58,10 @@ class PriceService:
                 res = await self.client.get(url)
             res.raise_for_status()
             meta = res.json().get("chart", {}).get("result", [{}])[0].get("meta", {})
-            return self._extract_yahoo_price(meta)
+            rate = self._extract_yahoo_price(meta)
+            if rate > 0:
+                ttl_cache.set(cache_key, rate, ttl=300.0)
+            return rate
         except Exception:
             return 0.0
 
@@ -80,6 +102,11 @@ class PriceService:
         return merged
 
     async def _fetch_single_stock(self, symbol: str) -> tuple[str, PriceData]:
+        cache_key = f"stock_price_{symbol}"
+        cached = ttl_cache.get(cache_key)
+        if cached is not None:
+            return symbol, cached
+
         yahoo_symbol = to_yahoo_symbol(symbol)
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(yahoo_symbol)}?range=1d&interval=1d&includePrePost=false"
         try:
@@ -88,12 +115,15 @@ class PriceService:
             res.raise_for_status()
             meta = res.json().get("chart", {}).get("result", [{}])[0].get("meta", {})
             price = self._extract_yahoo_price(meta)
-            return symbol, PriceData(
+            data = PriceData(
                 symbol=symbol,
                 name=meta.get("longName") or meta.get("shortName") or "",
                 price=price,
                 currency=meta.get("currency") or "",
             )
+            if price > 0 or data.name:
+                ttl_cache.set(cache_key, data, ttl=60.0)
+            return symbol, data
         except Exception:
             return symbol, PriceData(symbol=symbol, name="", price=0.0, currency="")
 
@@ -106,16 +136,31 @@ class PriceService:
         return price_map
 
     async def _fetch_binance_tickers(self) -> Any:
+        cache_key = "binance_tickers"
+        cached = ttl_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         try:
             async with get_outbound_semaphore():
                 res = await self.client.get("https://api.binance.th/api/v1/ticker/price")
             res.raise_for_status()
-            return res.json()
+            data = res.json()
+            ttl_cache.set(cache_key, data, ttl=30.0)
+            return data
         except Exception:
             return []
 
     async def _fetch_yahoo_crypto_name(self, symbol: str) -> tuple[str, str]:
         base = re.sub(r"(?i)\.CRYPTO$", "", symbol).strip().upper()
+        if base in COMMON_CRYPTO_NAMES:
+            return symbol, COMMON_CRYPTO_NAMES[base]
+
+        cache_key = f"crypto_name_{symbol}"
+        cached = ttl_cache.get(cache_key)
+        if cached is not None:
+            return symbol, cached
+
         yahoo_symbol = f"{base}-USD"
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(yahoo_symbol)}?range=1d&interval=1d&includePrePost=false"
         try:
@@ -123,7 +168,10 @@ class PriceService:
                 res = await self.client.get(url)
             res.raise_for_status()
             meta = res.json().get("chart", {}).get("result", [{}])[0].get("meta", {})
-            return symbol, meta.get("longName") or meta.get("shortName") or ""
+            name = meta.get("longName") or meta.get("shortName") or ""
+            if name:
+                ttl_cache.set(cache_key, name, ttl=86400.0)
+            return symbol, name
         except Exception:
             return symbol, ""
 
@@ -167,6 +215,11 @@ class PriceService:
         return price_map
 
     async def _fetch_single_stock_dividends(self, symbol: str) -> tuple[str, dict[str, Any]]:
+        cache_key = f"stock_div_{symbol}"
+        cached = ttl_cache.get(cache_key)
+        if cached is not None:
+            return symbol, cached
+
         yahoo_symbol = to_yahoo_symbol(symbol)
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(yahoo_symbol)}?range=5y&interval=1mo&events=div"
         try:
@@ -189,7 +242,9 @@ class PriceService:
                         trailing_12m += amt
 
             div_list.sort(key=lambda x: x.get("date", 0), reverse=True)
-            return symbol, {"trailing_12m_dps": trailing_12m, "dividends": div_list}
+            res_data = {"trailing_12m_dps": trailing_12m, "dividends": div_list}
+            ttl_cache.set(cache_key, res_data, ttl=3600.0)
+            return symbol, res_data
         except Exception:
             return symbol, {"trailing_12m_dps": 0.0, "dividends": []}
 

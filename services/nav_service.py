@@ -8,6 +8,7 @@ import httpx
 
 from config.settings import get_settings
 from models.transaction import PriceData
+from utils.cache import ttl_cache
 from utils.http_client import get_http_client, get_outbound_semaphore
 
 SEC_API_CONFIG = {
@@ -45,15 +46,21 @@ class NavService:
         return price_map
 
     async def fetch_single_fund_nav(self, symbol: str) -> dict[str, Any]:
+        cache_key = f"sec_nav_single_{symbol}"
+        cached = ttl_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         clean_symbol = re.sub(r"(?i)\.BKFUND$", "", symbol).strip()
         sym_upper = clean_symbol.upper()
 
         profile = await self.fetch_fund_profile(clean_symbol, sym_upper)
         if not profile or not profile.get("proj_id"):
-            return {
+            res_empty = {
                 "originalSymbol": symbol,
                 "data": PriceData(symbol=symbol, name=clean_symbol, price=0.0, currency="THB"),
             }
+            return res_empty
 
         fund = {
             "projId": profile["proj_id"],
@@ -61,9 +68,17 @@ class NavService:
             "targetClass": profile.get("fund_class_name"),
         }
 
-        return await self.fetch_fund_nav_data(symbol, clean_symbol, sym_upper, fund)
+        res = await self.fetch_fund_nav_data(symbol, clean_symbol, sym_upper, fund)
+        if res["data"].price > 0:
+            ttl_cache.set(cache_key, res, ttl=1800.0)
+        return res
 
     async def fetch_fund_profile(self, clean_symbol: str, sym_upper: str) -> Any:
+        cache_key = f"sec_profile_{clean_symbol.upper()}"
+        cached = ttl_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         try:
             url1 = (
                 f"{SEC_API_CONFIG['baseUrl']}/general-info/profiles?fund_class_name={urllib.parse.quote(clean_symbol)}"
@@ -81,6 +96,7 @@ class NavService:
                     str(i.get("fund_class_name")).upper() == sym_upper
                     or str(i.get("proj_abbr_name")).upper() == sym_upper
                 ):
+                    ttl_cache.set(cache_key, i, ttl=86400.0)
                     return i
 
             url2 = f"{SEC_API_CONFIG['baseUrl']}/general-info/profiles?project_info={urllib.parse.quote(clean_symbol)}"
@@ -95,17 +111,27 @@ class NavService:
             if not proj_items:
                 return None
 
+            matched = None
             for i in proj_items:
                 if str(i.get("proj_abbr_name")).upper() == sym_upper and i.get("fund_class_name") == "main":
-                    return i
-            for i in proj_items:
-                if str(i.get("fund_class_name")).upper() == sym_upper:
-                    return i
-            for i in proj_items:
-                if str(i.get("proj_abbr_name")).upper() == sym_upper:
-                    return i
+                    matched = i
+                    break
+            if not matched:
+                for i in proj_items:
+                    if str(i.get("fund_class_name")).upper() == sym_upper:
+                        matched = i
+                        break
+            if not matched:
+                for i in proj_items:
+                    if str(i.get("proj_abbr_name")).upper() == sym_upper:
+                        matched = i
+                        break
+            if not matched:
+                matched = proj_items[0]
 
-            return proj_items[0]
+            if matched:
+                ttl_cache.set(cache_key, matched, ttl=86400.0)
+            return matched
         except Exception:
             return None
 
@@ -164,6 +190,11 @@ class NavService:
             }
 
     async def fetch_fund_dividend_history(self, symbol: str) -> list[dict[str, Any]]:
+        cache_key = f"sec_div_{symbol}"
+        cached = ttl_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         clean_symbol = re.sub(r"(?i)\.BKFUND$", "", symbol).strip()
         sym_upper = clean_symbol.upper()
 
@@ -176,7 +207,9 @@ class NavService:
             if res.status_code == 200:
                 raw_items = res.json().get("items", [])
                 if raw_items and isinstance(raw_items, list):
-                    return cast(list[dict[str, Any]], raw_items)
+                    items = cast(list[dict[str, Any]], raw_items)
+                    ttl_cache.set(cache_key, items, ttl=3600.0)
+                    return items
 
             # 2. Try by fund profile proj_id fallback
             profile = await self.fetch_fund_profile(clean_symbol, sym_upper)
@@ -194,7 +227,9 @@ class NavService:
                             for i in items2
                             if str(i.get("class_abbr_name") or i.get("fund_class_name") or "").upper() == sym_upper
                         ]
-                        return filtered if filtered else items2
+                        final_res = filtered if filtered else items2
+                        ttl_cache.set(cache_key, final_res, ttl=3600.0)
+                        return final_res
             return []
         except Exception:
             return []

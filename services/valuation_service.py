@@ -12,6 +12,7 @@ from models.portfolio import (
 from models.transaction import ClosedShareLot, SheetResult
 from services.price_service import PriceService
 from services.share_lot_service import ShareLotService
+from utils.cache import ttl_cache
 from utils.format_utils import (
     convert_currency,
     display_symbol,
@@ -35,8 +36,13 @@ class ValuationService:
         tab_id: str = "all",
         currency: str = "THB",
     ) -> PortfolioHoldingsResponse:
-        is_all = tab_id == "all"
         target_currency = currency.upper()
+        cache_key = f"valuation_{tab_id}_{target_currency}"
+        cached = ttl_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        is_all = tab_id == "all"
 
         sheet_result: SheetResult
         if is_all:
@@ -72,13 +78,16 @@ class ValuationService:
         else:
             exchange_rate = await self.price_service.fetch_exchange_rate("USD", "THB") or 1.0
 
-        return self.value_sheet_result(
+        res = self.value_sheet_result(
             sheet_result=sheet_result,
             price_data_map=price_data_map,
             exchange_rate=exchange_rate,
             target_currency=target_currency,
             tab_id=tab_id,
         )
+        if not res.error:
+            ttl_cache.set(cache_key, res, ttl=60.0)
+        return res
 
     def value_sheet_result(
         self,

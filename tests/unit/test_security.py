@@ -42,3 +42,51 @@ def test_payload_bounding_summaries_request(api_client):
     too_many_summaries = [{"symbol": f"SYM{i}", "assetType": "us-stock"} for i in range(51)]
     res = api_client.post("/price/fetch-prices", json={"summaries": too_many_summaries})
     assert res.status_code == 422
+
+
+@pytest.mark.unit
+def test_direct_access_to_vercel_backend_blocked(api_client, mocked_external_apis):
+    # Direct access with host sgsk-backend.vercel.app and no proxy/app headers is blocked
+    res = api_client.get(
+        "/share-lot/sheets",
+        headers={"Host": "sgsk-backend.vercel.app"},
+    )
+    assert res.status_code == 403
+    assert "Direct access to backend origin is prohibited" in res.json()["detail"]
+
+
+@pytest.mark.unit
+def test_direct_access_root_to_vercel_backend_blocked(api_client):
+    # Direct access to root / on sgsk-backend.vercel.app is blocked
+    res = api_client.get(
+        "/",
+        headers={"Host": "sgsk-backend.vercel.app"},
+    )
+    assert res.status_code == 403
+    assert "Direct access to backend origin is prohibited" in res.json()["detail"]
+
+
+@pytest.mark.unit
+def test_forwarded_proxy_access_to_vercel_backend_allowed(api_client, mocked_external_apis):
+    # Access rewritten from frontend proxy (x-forwarded-host) is allowed
+    res = api_client.get(
+        "/share-lot/sheets",
+        headers={
+            "Host": "sgsk-backend.vercel.app",
+            "X-Forwarded-Host": "sharelot.vercel.app",
+        },
+    )
+    assert res.status_code == 200
+
+
+@pytest.mark.unit
+def test_app_source_signature_access_to_vercel_backend_allowed(api_client, mocked_external_apis):
+    # Access with verified app signature header is allowed
+    res = api_client.get(
+        "/share-lot/sheets",
+        headers={
+            "Host": "sgsk-backend.vercel.app",
+            "X-App-Source": "ShareLot",
+        },
+    )
+    assert res.status_code == 200
