@@ -4,7 +4,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from config.settings import get_settings
-from routers import nav, portfolio, price, share_lot
+from routers import nav, portfolio, price, share_lot, tools
 from utils.auth import verify_api_key
 from utils.http_client import lifespan
 
@@ -86,6 +86,7 @@ app.include_router(share_lot.router)
 app.include_router(price.router)
 app.include_router(nav.router)
 app.include_router(portfolio.router)
+app.include_router(tools.router)
 
 
 @app.get("/")
