@@ -31,6 +31,11 @@ This is the Python **FastAPI** backend for the [ShareLot](https://github.com/vip
 - `POST /price/fetch-prices` — Batch fetches market quotes and currency data for a list of portfolio asset summaries across Yahoo Finance, Binance TH, and SEC Thailand.
 - `GET /price/exchange-rate` — Live exchange rate lookup (defaults to `from_currency=USD&to_currency=THB`).
 
+### Financial Tools & Simulation
+- `POST /portfolio/tools/simulate-order` — Forward Buy / Sell order simulation calculating projected average cost, breakeven, and P/L impact with custom brokerage fees.
+- `POST /portfolio/tools/solve-target-cost` — Target average cost solver computing exact required shares and capital outlay to achieve a desired cost basis.
+- `POST /portfolio/tools/tvm` — Time Value of Money (TVM) multi-solve calculation engine supporting 5 solve modes ($FV$, $PMT$, $PV$, $N$, $Rate$), 8 compounding frequencies, and year-by-year accumulation schedule generation.
+
 ### Mutual Fund NAVs
 - `POST /nav/fetch` — Fetches daily NAV data for Thai Mutual Funds via the SEC Thailand API.
 
