@@ -153,3 +153,87 @@ class TvmCalculateResponse(BaseModel):
     isValid: bool = True
     errorMessage: str = ""
 
+
+RebalanceMode = Literal["standard", "no-sell"]
+NoSellSubMode = Literal["min-inflow", "custom-deposit"]
+RebalanceAction = Literal["BUY", "SELL", "BALANCED"]
+
+
+class SymbolRebalanceInputModel(BaseModel):
+    symbol: str
+    targetPercent: float = Field(default=0.0, ge=0.0, le=100.0)
+
+
+class RebalanceTradeOrderModel(BaseModel):
+    id: str
+    symbol: str
+    displaySymbol: str
+    name: str
+    assetType: str
+    action: Literal["BUY", "SELL"]
+    shares: float
+    price: float
+    amount: float
+    currency: str = "USD"
+
+
+class SymbolRebalanceItemModel(BaseModel):
+    symbol: str
+    displaySymbol: str
+    name: str
+    assetType: str
+    assetTypeLabel: str
+    currency: str
+    currentShares: float
+    currentPrice: float
+    currentValue: float
+    currentClassPercent: float
+    currentPortfolioPercent: float
+    targetPercent: float
+    targetValue: float
+    action: RebalanceAction
+    deltaValue: float
+    deltaShares: float
+    color: str
+    isAnchorPosition: bool = False
+
+
+class AssetClassRebalanceGroupModel(BaseModel):
+    assetType: str
+    label: str
+    color: str
+    currentValue: float
+    currentPortfolioPercent: float
+    targetTotalPercent: float
+    isValid: bool
+    minInflowRequired: float
+    totalBuyAmount: float
+    totalSellAmount: float
+    symbols: list[SymbolRebalanceItemModel] = Field(default_factory=list)
+
+
+class RebalanceCalculateRequest(BaseModel):
+    mode: RebalanceMode = Field(default="standard")
+    noSellSubMode: NoSellSubMode = Field(default="min-inflow")
+    customCashDeposit: float = Field(default=0.0, ge=0.0)
+    targetAllocations: dict[str, float] = Field(default_factory=dict, description="Map of symbol -> target % in class")
+    currency: str = Field(default="USD")
+
+
+class RebalanceCalculateResponse(BaseModel):
+    mode: RebalanceMode
+    noSellSubMode: NoSellSubMode = "min-inflow"
+    currency: str = "USD"
+    totalCurrentPortfolioValue: float
+
+    totalTargetPortfolioValue: float
+    cashContribution: float
+    totalBuyAmount: float
+    totalSellAmount: float
+    netCashDifference: float
+    groups: list[AssetClassRebalanceGroupModel] = Field(default_factory=list)
+    orders: list[RebalanceTradeOrderModel] = Field(default_factory=list)
+    isValid: bool = True
+    errorMessage: str = ""
+
+

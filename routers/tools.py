@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends
 
 from models.tools import (
+    RebalanceCalculateRequest,
+    RebalanceCalculateResponse,
     SimulateOrderRequest,
     SimulateOrderResponse,
     SolveTargetCostRequest,
@@ -47,4 +49,14 @@ async def calculate_tvm(req: TvmCalculateRequest) -> TvmCalculateResponse:
     required periodic contributions, starting capital, investment horizon, and return rate (CAGR).
     """
     return await tools_service.calculate_tvm(req)
+
+
+@router.post("/rebalance", response_model=RebalanceCalculateResponse)
+async def calculate_rebalance(req: RebalanceCalculateRequest) -> RebalanceCalculateResponse:
+    """
+    Calculates portfolio rebalance actions across asset classes for standard (buy/sell)
+    and no-sell (minimum inflow & custom contribution) modes.
+    """
+    return await tools_service.calculate_rebalance(req)
+
 

@@ -2,18 +2,25 @@ import logging
 import math
 
 from models.tools import (
+    AssetClassRebalanceGroupModel,
     CompoundingFrequency,
     PositionSnapshotModel,
+    RebalanceAction,
+    RebalanceCalculateRequest,
+    RebalanceCalculateResponse,
+    RebalanceTradeOrderModel,
     SimulateOrderRequest,
     SimulateOrderResponse,
     SimulationDeltaMetrics,
     SimulationStateMetrics,
     SolveTargetCostRequest,
     SolveTargetCostResponse,
+    SymbolRebalanceItemModel,
     TvmCalculateRequest,
     TvmCalculateResponse,
     TvmScheduleEntryModel,
 )
+
 from services.valuation_service import ValuationService
 
 logger = logging.getLogger(__name__)
@@ -490,4 +497,269 @@ class ToolsService:
             )
 
         return schedule
+
+    async def calculate_rebalance(self, req: RebalanceCalculateRequest) -> RebalanceCalculateResponse:
+        currency = req.currency or "USD"
+        holdings = await self.valuation_service.get_portfolio_holdings(tab_id="all", currency=currency)
+        open_positions = holdings.openPositions or []
+
+        class_map: dict[str, list] = {}
+        for pos in open_positions:
+            atype = pos.assetType or "us-stock"
+            class_map.setdefault(atype, []).append(pos)
+
+        ordered_types = ["us-stock", "thai-stock", "crypto", "mutual-fund"]
+        all_types = [t for t in ordered_types if t in class_map] + [t for t in class_map if t not in ordered_types]
+
+        total_portfolio_value = sum(pos.holdingValue for pos in open_positions)
+
+        groups: list[AssetClassRebalanceGroupModel] = []
+        orders: list[RebalanceTradeOrderModel] = []
+        total_buy_amount = 0.0
+        total_sell_amount = 0.0
+        total_inflow_contribution = 0.0
+
+        for atype in all_types:
+            pos_list = class_map[atype]
+            class_total_value = sum(pos.holdingValue for pos in pos_list)
+            class_portfolio_pct = (class_total_value / total_portfolio_value * 100.0) if total_portfolio_value > 0 else 0.0
+
+            target_sum = sum(max(0.0, req.targetAllocations.get(p.symbol, 0.0)) for p in pos_list)
+            is_valid = abs(target_sum - 100.0) <= 0.1 or (target_sum == 0 and len(pos_list) == 0)
+
+            symbols: list[SymbolRebalanceItemModel] = []
+            group_buy = 0.0
+            group_sell = 0.0
+            min_inflow_req = 0.0
+
+            if req.mode == "standard":
+                for pos in pos_list:
+                    tpct = max(0.0, req.targetAllocations.get(pos.symbol, 0.0))
+                    tval = (tpct / 100.0) * class_total_value if class_total_value > 0 else 0.0
+                    delta_val = tval - pos.holdingValue
+                    cur_class_pct = (pos.holdingValue / class_total_value * 100.0) if class_total_value > 0 else 0.0
+                    cur_port_pct = (pos.holdingValue / total_portfolio_value * 100.0) if total_portfolio_value > 0 else 0.0
+
+                    act: RebalanceAction
+                    if delta_val > 0.01:
+                        act = "BUY"
+                        group_buy += delta_val
+                        dshares = delta_val / pos.currentPrice if pos.currentPrice > 0 else 0.0
+                    elif delta_val < -0.01:
+                        act = "SELL"
+                        group_sell += abs(delta_val)
+                        dshares = -abs(delta_val) / pos.currentPrice if pos.currentPrice > 0 else 0.0
+                    else:
+                        act = "BALANCED"
+                        dshares = 0.0
+
+                    symbols.append(
+                        SymbolRebalanceItemModel(
+                            symbol=pos.symbol,
+                            displaySymbol=pos.displaySymbol or pos.symbol,
+                            name=pos.name or pos.symbol,
+                            assetType=atype,
+                            assetTypeLabel=pos.assetTypeLabel or atype,
+                            currency=currency,
+                            currentShares=pos.totalShares,
+                            currentPrice=pos.currentPrice,
+                            currentValue=pos.holdingValue,
+                            currentClassPercent=round(cur_class_pct, 2),
+                            currentPortfolioPercent=round(cur_port_pct, 2),
+                            targetPercent=round(tpct, 2),
+                            targetValue=round(tval, 2),
+                            action=act,
+                            deltaValue=round(delta_val, 2),
+                            deltaShares=round(dshares, 4),
+                            color="#3b82f6",
+                        )
+                    )
+            else:
+                # No-Sell mode
+                if req.noSellSubMode == "min-inflow":
+                    max_req_class_val = class_total_value
+                    anchor_sym = None
+                    for pos in pos_list:
+                        tpct = max(0.0, req.targetAllocations.get(pos.symbol, 0.0))
+                        if tpct > 0:
+                            req_val = pos.holdingValue / (tpct / 100.0)
+                            if req_val > max_req_class_val:
+                                max_req_class_val = req_val
+                                anchor_sym = pos.symbol
+
+                    min_inflow_req = max(0.0, max_req_class_val - class_total_value)
+                    new_class_val = max_req_class_val
+                    group_buy = min_inflow_req
+                    total_inflow_contribution += min_inflow_req
+
+                    for pos in pos_list:
+                        tpct = max(0.0, req.targetAllocations.get(pos.symbol, 0.0))
+                        tval = (tpct / 100.0) * new_class_val
+                        delta_val = max(0.0, tval - pos.holdingValue)
+                        cur_class_pct = (pos.holdingValue / class_total_value * 100.0) if class_total_value > 0 else 0.0
+                        cur_port_pct = (pos.holdingValue / total_portfolio_value * 100.0) if total_portfolio_value > 0 else 0.0
+                        is_anchor = pos.symbol == anchor_sym or delta_val < 0.01
+
+                        no_sell_act: RebalanceAction = "BUY" if delta_val >= 0.01 else "BALANCED"
+                        dshares = delta_val / pos.currentPrice if delta_val >= 0.01 and pos.currentPrice > 0 else 0.0
+
+                        symbols.append(
+                            SymbolRebalanceItemModel(
+                                symbol=pos.symbol,
+                                displaySymbol=pos.displaySymbol or pos.symbol,
+                                name=pos.name or pos.symbol,
+                                assetType=atype,
+                                assetTypeLabel=pos.assetTypeLabel or atype,
+                                currency=currency,
+                                currentShares=pos.totalShares,
+                                currentPrice=pos.currentPrice,
+                                currentValue=pos.holdingValue,
+                                currentClassPercent=round(cur_class_pct, 2),
+                                currentPortfolioPercent=round(cur_port_pct, 2),
+                                targetPercent=round(tpct, 2),
+                                targetValue=round(tval, 2),
+                                action=no_sell_act,
+                                deltaValue=round(delta_val, 2),
+                                deltaShares=round(dshares, 4),
+                                color="#3b82f6",
+                                isAnchorPosition=is_anchor and tpct > 0,
+                            )
+                        )
+                else:
+                    # Custom Deposit Mode
+                    deposit = max(0.0, req.customCashDeposit)
+                    share_of_deposit = (class_total_value / total_portfolio_value * deposit) if total_portfolio_value > 0 else (deposit / max(1, len(all_types)))
+                    target_class_val = class_total_value + share_of_deposit
+
+                    deficits = []
+                    for pos in pos_list:
+                        tpct = max(0.0, req.targetAllocations.get(pos.symbol, 0.0))
+                        ideal_val = (tpct / 100.0) * target_class_val
+                        deficit = max(0.0, ideal_val - pos.holdingValue)
+                        deficits.append((pos.symbol, tpct, deficit))
+
+                    tot_deficit = sum(d[2] for d in deficits)
+                    allocated_cash = 0.0
+
+                    for pos in pos_list:
+                        sym, tpct, dval = next((d for d in deficits if d[0] == pos.symbol), (pos.symbol, 0.0, 0.0))
+                        if tot_deficit > 0 and share_of_deposit > 0:
+                            if tot_deficit <= share_of_deposit:
+                                surplus = share_of_deposit - tot_deficit
+                                b_amt = dval + (tpct / 100.0) * surplus
+                            else:
+                                b_amt = share_of_deposit * (dval / tot_deficit)
+                        else:
+                            b_amt = 0.0
+
+                        allocated_cash += b_amt
+                        tval = pos.holdingValue + b_amt
+                        cur_class_pct = (pos.holdingValue / class_total_value * 100.0) if class_total_value > 0 else 0.0
+                        cur_port_pct = (pos.holdingValue / total_portfolio_value * 100.0) if total_portfolio_value > 0 else 0.0
+
+                        custom_act: RebalanceAction = "BUY" if b_amt >= 0.01 else "BALANCED"
+                        dshares = b_amt / pos.currentPrice if b_amt >= 0.01 and pos.currentPrice > 0 else 0.0
+
+                        symbols.append(
+                            SymbolRebalanceItemModel(
+                                symbol=pos.symbol,
+                                displaySymbol=pos.displaySymbol or pos.symbol,
+                                name=pos.name or pos.symbol,
+                                assetType=atype,
+                                assetTypeLabel=pos.assetTypeLabel or atype,
+                                currency=currency,
+                                currentShares=pos.totalShares,
+                                currentPrice=pos.currentPrice,
+                                currentValue=pos.holdingValue,
+                                currentClassPercent=round(cur_class_pct, 2),
+                                currentPortfolioPercent=round(cur_port_pct, 2),
+                                targetPercent=round(tpct, 2),
+                                targetValue=round(tval, 2),
+                                action=custom_act,
+                                deltaValue=round(b_amt, 2),
+                                deltaShares=round(dshares, 4),
+                                color="#3b82f6",
+                                isAnchorPosition=b_amt < 0.01 and tpct > 0,
+                            )
+                        )
+
+
+                    group_buy = allocated_cash
+                    total_inflow_contribution += allocated_cash
+
+            total_buy_amount += group_buy
+            total_sell_amount += group_sell
+
+            for s in symbols:
+                if s.action == "BUY" and s.deltaValue >= 0.01:
+                    orders.append(
+                        RebalanceTradeOrderModel(
+                            id=f"order-buy-{s.symbol}",
+                            symbol=s.symbol,
+                            displaySymbol=s.displaySymbol,
+                            name=s.name,
+                            assetType=s.assetType,
+                            action="BUY",
+                            shares=round(s.deltaShares, 4),
+                            price=round(s.currentPrice, 4),
+                            amount=round(s.deltaValue, 2),
+                            currency=currency,
+                        )
+                    )
+                elif s.action == "SELL" and s.deltaValue <= -0.01:
+                    orders.append(
+                        RebalanceTradeOrderModel(
+                            id=f"order-sell-{s.symbol}",
+                            symbol=s.symbol,
+                            displaySymbol=s.displaySymbol,
+                            name=s.name,
+                            assetType=s.assetType,
+                            action="SELL",
+                            shares=round(abs(s.deltaShares), 4),
+                            price=round(s.currentPrice, 4),
+                            amount=round(abs(s.deltaValue), 2),
+                            currency=currency,
+                        )
+                    )
+
+            groups.append(
+                AssetClassRebalanceGroupModel(
+                    assetType=atype,
+                    label=atype.replace("-", " ").title(),
+                    color="#3b82f6",
+                    currentValue=round(class_total_value, 2),
+                    currentPortfolioPercent=round(class_portfolio_pct, 2),
+                    targetTotalPercent=round(target_sum, 2),
+                    isValid=is_valid,
+                    minInflowRequired=round(min_inflow_req, 2),
+                    totalBuyAmount=round(group_buy, 2),
+                    totalSellAmount=round(group_sell, 2),
+                    symbols=symbols,
+                )
+            )
+
+        if req.mode == "standard":
+            target_port_val = total_portfolio_value
+        else:
+            target_port_val = total_portfolio_value + total_inflow_contribution
+
+        is_overall_valid = all(g.isValid for g in groups)
+        orders.sort(key=lambda o: (-1 if o.action == "BUY" else 1, -o.amount))
+
+        return RebalanceCalculateResponse(
+            mode=req.mode,
+            noSellSubMode=req.noSellSubMode,
+            currency=currency,
+            totalCurrentPortfolioValue=round(total_portfolio_value, 2),
+            totalTargetPortfolioValue=round(target_port_val, 2),
+            cashContribution=round(total_inflow_contribution if req.mode == "no-sell" else 0.0, 2),
+            totalBuyAmount=round(total_buy_amount, 2),
+            totalSellAmount=round(total_sell_amount, 2),
+            netCashDifference=round(total_buy_amount - total_sell_amount, 2),
+            groups=groups,
+            orders=orders,
+            isValid=is_overall_valid,
+            errorMessage="" if is_overall_valid else "Target percentages in one or more asset classes do not sum to 100%.",
+        )
+
 

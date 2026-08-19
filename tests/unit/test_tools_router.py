@@ -162,3 +162,55 @@ def test_tools_router_tvm_endpoint(api_client, monkeypatch):
     assert data["totalPrincipal"] == 10000.0
     assert data["compoundingPeriodsPerYear"] == 12
 
+
+@pytest.mark.unit
+def test_tools_router_rebalance_endpoint(api_client, monkeypatch):
+    from models.tools import AssetClassRebalanceGroupModel, RebalanceCalculateResponse
+
+    async def mock_rebalance(self, req):
+        return RebalanceCalculateResponse(
+            mode="standard",
+            totalCurrentPortfolioValue=40000.0,
+            totalTargetPortfolioValue=40000.0,
+            cashContribution=0.0,
+            totalBuyAmount=5000.0,
+            totalSellAmount=5000.0,
+            netCashDifference=0.0,
+            groups=[
+                AssetClassRebalanceGroupModel(
+                    assetType="us-stock",
+                    label="U.S. Stock",
+                    color="#0ea5e9",
+                    currentValue=40000.0,
+                    targetValue=40000.0,
+                    currentPortfolioPercent=100.0,
+                    targetTotalPercent=100.0,
+                    minInflowRequired=0.0,
+                    totalBuyAmount=5000.0,
+                    totalSellAmount=5000.0,
+                    isValid=True,
+                    symbols=[],
+                )
+            ],
+            orders=[],
+            currency="USD",
+            isValid=True,
+        )
+
+    monkeypatch.setattr(ToolsService, "calculate_rebalance", mock_rebalance)
+
+    payload = {
+        "mode": "standard",
+        "targetAllocations": {"NVDA": 50.0, "AAPL": 50.0},
+        "currency": "USD",
+    }
+
+    res = api_client.post("/portfolio/tools/rebalance", json=payload)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["isValid"] is True
+    assert data["totalBuyAmount"] == 5000.0
+    assert data["totalSellAmount"] == 5000.0
+    assert len(data["groups"]) == 1
+
+

@@ -388,3 +388,101 @@ async def test_tools_service_calculate_tvm_solve_pv():
     assert res.futureValue == 500000.0
 
 
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_tools_service_calculate_rebalance_standard_and_no_sell(monkeypatch):
+    service = ToolsService()
+    from unittest.mock import AsyncMock
+
+    from models.portfolio import PortfolioHoldingsResponse, PortfolioPosition, PortfolioSummary
+    from models.tools import RebalanceCalculateRequest
+
+    mock_positions = [
+        PortfolioPosition(
+            symbol="NVDA",
+            displaySymbol="NVDA",
+            name="NVIDIA Corp",
+            assetType="us-stock",
+            assetTypeLabel="US Stock",
+            currency="USD",
+            originalCurrency="USD",
+            totalShares=100.0,
+            averageCost=100.0,
+            totalCost=10000.0,
+            currentPrice=150.0,
+            holdingValue=15000.0,
+            unrealizedPL=5000.0,
+            unrealizedPLPercent=50.0,
+            hasPrice=True,
+            lots=[],
+        ),
+        PortfolioPosition(
+            symbol="AAPL",
+            displaySymbol="AAPL",
+            name="Apple Inc",
+            assetType="us-stock",
+            assetTypeLabel="US Stock",
+            currency="USD",
+            originalCurrency="USD",
+            totalShares=100.0,
+            averageCost=200.0,
+            totalCost=20000.0,
+            currentPrice=250.0,
+            holdingValue=25000.0,
+            unrealizedPL=5000.0,
+            unrealizedPLPercent=25.0,
+            hasPrice=True,
+            lots=[],
+        ),
+    ]
+
+    mock_holdings = PortfolioHoldingsResponse(
+        currency="USD",
+        exchangeRate=1.0,
+        tabId="all",
+        summary=PortfolioSummary(
+            totalInvested=30000.0,
+            totalValue=40000.0,
+            openInvested=30000.0,
+            closedInvested=0.0,
+            totalUnrealizedPL=10000.0,
+            totalUnrealizedPLPercent=33.33,
+            totalRealizedPL=0.0,
+            totalRealizedPLPercent=0.0,
+            totalReturn=10000.0,
+            totalReturnPercent=33.33,
+        ),
+        openPositions=mock_positions,
+        closedPositions=[],
+        error=None,
+    )
+
+    monkeypatch.setattr(service.valuation_service, "get_portfolio_holdings", AsyncMock(return_value=mock_holdings))
+
+    # Standard mode: 50% NVDA, 50% AAPL (each 20,000)
+    req_std = RebalanceCalculateRequest(
+        mode="standard",
+        targetAllocations={"NVDA": 50.0, "AAPL": 50.0},
+        currency="USD",
+    )
+    res_std = await service.calculate_rebalance(req_std)
+    assert res_std.isValid is True
+    assert res_std.totalBuyAmount == 5000.0
+    assert res_std.totalSellAmount == 5000.0
+    assert len(res_std.orders) == 2
+
+    # No-Sell mode: 50% NVDA, 50% AAPL -> AAPL is anchor (25k), NVDA needs 10k buy
+    req_no_sell = RebalanceCalculateRequest(
+        mode="no-sell",
+        noSellSubMode="min-inflow",
+        targetAllocations={"NVDA": 50.0, "AAPL": 50.0},
+        currency="USD",
+    )
+    res_no_sell = await service.calculate_rebalance(req_no_sell)
+    assert res_no_sell.isValid is True
+    assert res_no_sell.cashContribution == 10000.0
+    assert res_no_sell.totalBuyAmount == 10000.0
+    assert res_no_sell.totalSellAmount == 0.0
+
+
+

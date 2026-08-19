@@ -35,6 +35,8 @@ This is the Python **FastAPI** backend for the [ShareLot](https://github.com/vip
 - `POST /portfolio/tools/simulate-order` — Forward Buy / Sell order simulation calculating projected average cost, breakeven, and P/L impact with custom brokerage fees.
 - `POST /portfolio/tools/solve-target-cost` — Target average cost solver computing exact required shares and capital outlay to achieve a desired cost basis.
 - `POST /portfolio/tools/tvm` — Time Value of Money (TVM) multi-solve calculation engine supporting 5 solve modes ($FV$, $PMT$, $PV$, $N$, $Rate$), 8 compounding frequencies, and year-by-year accumulation schedule generation.
+- `POST /portfolio/tools/rebalance` — Multi-asset class portfolio rebalance planning engine supporting Standard Two-Way rebalancing and No-Sell minimum cash inflow ($\Delta C_{\text{min}}$) & custom deposit budget allocation.
+
 
 ### Mutual Fund NAVs
 - `POST /nav/fetch` — Fetches daily NAV data for Thai Mutual Funds via the SEC Thailand API.
