@@ -42,41 +42,49 @@ class ValuationService:
         if cached is not None:
             return cast(PortfolioHoldingsResponse, cached)
 
-        is_all = tab_id == "all"
+        base_cache_key = f"valuation_base_{tab_id}"
+        base_cached = ttl_cache.get(base_cache_key)
 
-        sheet_result: SheetResult
-        if is_all:
-            sheet_result = await self.share_lot_service.fetch_all_sheets()
+        if base_cached is not None:
+            sheet_result, price_data_map, exchange_rate = base_cached
         else:
-            sheet_result = await self.share_lot_service.fetch_sheet(tab_id)
+            is_all = tab_id == "all"
 
-        if sheet_result.error:
-            return self._create_empty_response(tab_id, target_currency, sheet_result.error)
+            sheet_result: SheetResult
+            if is_all:
+                sheet_result = await self.share_lot_service.fetch_all_sheets()
+            else:
+                sheet_result = await self.share_lot_service.fetch_sheet(tab_id)
 
-        # Extract symbols for price resolution
-        candidates: list[dict[str, str]] = []
-        seen = set()
-        for o_item in sheet_result.summaries or []:
-            if o_item.symbol and o_item.symbol not in seen:
-                seen.add(o_item.symbol)
-                candidates.append({"symbol": o_item.symbol, "assetType": o_item.assetType})
-        for c_item in sheet_result.closedSummaries or []:
-            if c_item.symbol and c_item.symbol not in seen:
-                seen.add(c_item.symbol)
-                candidates.append({"symbol": c_item.symbol, "assetType": c_item.assetType})
-        for t_item in sheet_result.transactionSummaries or []:
-            if t_item.symbol and t_item.symbol not in seen:
-                seen.add(t_item.symbol)
-                candidates.append({"symbol": t_item.symbol, "assetType": t_item.assetType})
+            if sheet_result.error:
+                return self._create_empty_response(tab_id, target_currency, sheet_result.error)
 
-        price_data_map: dict[str, Any] = {}
-        exchange_rate = 1.0
-        if candidates:
-            market_res = await self.price_service.fetch_prices_and_rate(candidates)
-            price_data_map = market_res.get("prices", {})
-            exchange_rate = float(market_res.get("rate", 1.0) or 1.0)
-        else:
-            exchange_rate = await self.price_service.fetch_exchange_rate("USD", "THB") or 1.0
+            # Extract symbols for price resolution
+            candidates: list[dict[str, str]] = []
+            seen = set()
+            for o_item in sheet_result.summaries or []:
+                if o_item.symbol and o_item.symbol not in seen:
+                    seen.add(o_item.symbol)
+                    candidates.append({"symbol": o_item.symbol, "assetType": o_item.assetType})
+            for c_item in sheet_result.closedSummaries or []:
+                if c_item.symbol and c_item.symbol not in seen:
+                    seen.add(c_item.symbol)
+                    candidates.append({"symbol": c_item.symbol, "assetType": c_item.assetType})
+            for t_item in sheet_result.transactionSummaries or []:
+                if t_item.symbol and t_item.symbol not in seen:
+                    seen.add(t_item.symbol)
+                    candidates.append({"symbol": t_item.symbol, "assetType": t_item.assetType})
+
+            price_data_map: dict[str, Any] = {}
+            exchange_rate = 1.0
+            if candidates:
+                market_res = await self.price_service.fetch_prices_and_rate(candidates)
+                price_data_map = market_res.get("prices", {})
+                exchange_rate = float(market_res.get("rate", 1.0) or 1.0)
+            else:
+                exchange_rate = await self.price_service.fetch_exchange_rate("USD", "THB") or 1.0
+
+            ttl_cache.set(base_cache_key, (sheet_result, price_data_map, exchange_rate), ttl=60.0)
 
         res = self.value_sheet_result(
             sheet_result=sheet_result,
