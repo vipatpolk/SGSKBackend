@@ -45,12 +45,15 @@ class ValuationService:
         base_cache_key = f"valuation_base_{tab_id}"
         base_cached = ttl_cache.get(base_cache_key)
 
+        sheet_result: SheetResult
+        price_data_map: dict[str, Any]
+        exchange_rate: float
+
         if base_cached is not None:
             sheet_result, price_data_map, exchange_rate = base_cached
         else:
             is_all = tab_id == "all"
 
-            sheet_result: SheetResult
             if is_all:
                 sheet_result = await self.share_lot_service.fetch_all_sheets()
             else:
@@ -75,7 +78,7 @@ class ValuationService:
                     seen.add(t_item.symbol)
                     candidates.append({"symbol": t_item.symbol, "assetType": t_item.assetType})
 
-            price_data_map: dict[str, Any] = {}
+            price_data_map = {}
             exchange_rate = 1.0
             if candidates:
                 market_res = await self.price_service.fetch_prices_and_rate(candidates)
