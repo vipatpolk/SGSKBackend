@@ -241,3 +241,150 @@ async def test_tools_service_solve_target_cost_zero_initial_shares():
     assert res.requiredShares == 1.0
     assert res.requiredCapital == 50.0
 
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_tools_service_calculate_tvm_fv_mode():
+    service = ToolsService()
+    from models.tools import TvmCalculateRequest
+
+    # $10,000 PV, $500/mo, 8% annual rate, 10 years, monthly compounding
+    req = TvmCalculateRequest(
+        mode="FV",
+        presentValue=10000.0,
+        payment=500.0,
+        annualRatePct=8.0,
+        years=10.0,
+        compounding="monthly",
+        timing="end",
+    )
+    res = await service.calculate_tvm(req)
+
+    assert res.isValid is True
+    assert res.futureValue > res.totalInvested
+    assert res.totalPrincipal == 10000.0
+    assert res.totalContributions == 500.0 * 120
+    assert res.totalInvested == 70000.0
+    assert res.effectiveAnnualRatePct == 8.30
+    assert len(res.schedule) == 10
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_tools_service_calculate_tvm_solve_payment():
+    service = ToolsService()
+    from models.tools import TvmCalculateRequest
+
+    req = TvmCalculateRequest(
+        mode="PMT",
+        presentValue=50000.0,
+        targetFutureValue=1000000.0,
+        annualRatePct=7.0,
+        years=20.0,
+        compounding="monthly",
+        timing="end",
+    )
+    res = await service.calculate_tvm(req)
+
+    assert res.isValid is True
+    assert res.payment > 0.0
+
+    # Re-evaluating with this payment should yield approx 1,000,000
+    check_req = TvmCalculateRequest(
+        mode="FV",
+        presentValue=50000.0,
+        payment=res.payment,
+        annualRatePct=7.0,
+        years=20.0,
+        compounding="monthly",
+        timing="end",
+    )
+    check_res = await service.calculate_tvm(check_req)
+    assert abs(check_res.futureValue - 1000000.0) < 100.0
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_tools_service_calculate_tvm_solve_years_and_rate():
+    service = ToolsService()
+    from models.tools import TvmCalculateRequest
+
+    # Solve for N (years)
+    req_n = TvmCalculateRequest(
+        mode="N",
+        presentValue=20000.0,
+        payment=1000.0,
+        targetFutureValue=500000.0,
+        annualRatePct=8.0,
+        compounding="monthly",
+    )
+    res_n = await service.calculate_tvm(req_n)
+    assert res_n.isValid is True
+    assert res_n.years > 0.0
+
+    # Solve for RATE
+    req_rate = TvmCalculateRequest(
+        mode="RATE",
+        presentValue=100000.0,
+        payment=2000.0,
+        targetFutureValue=1000000.0,
+        years=15.0,
+        compounding="monthly",
+    )
+    res_rate = await service.calculate_tvm(req_rate)
+    assert res_rate.isValid is True
+    assert res_rate.annualRatePct > 0.0
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_tools_service_calculate_tvm_all_compounding_frequencies():
+    service = ToolsService()
+    from models.tools import CompoundingFrequency, TvmCalculateRequest
+
+    frequencies: list[CompoundingFrequency] = [
+        "daily",
+        "weekly",
+        "biweekly",
+        "semimonthly",
+        "monthly",
+        "quarterly",
+        "semiannually",
+        "annually",
+    ]
+
+    for freq in frequencies:
+        req = TvmCalculateRequest(
+            mode="FV",
+            presentValue=10000.0,
+            payment=100.0,
+            annualRatePct=6.0,
+            years=5.0,
+            compounding=freq,
+        )
+        res = await service.calculate_tvm(req)
+        assert res.isValid is True
+        assert res.futureValue > 10000.0
+        assert res.compounding == freq
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_tools_service_calculate_tvm_solve_pv():
+    service = ToolsService()
+    from models.tools import TvmCalculateRequest
+
+    req = TvmCalculateRequest(
+        mode="PV",
+        targetFutureValue=500000.0,
+        payment=1000.0,
+        annualRatePct=8.0,
+        years=10.0,
+        compounding="monthly",
+    )
+    res = await service.calculate_tvm(req)
+    assert res.isValid is True
+    assert res.presentValue > 0.0
+    assert res.futureValue == 500000.0
+
+

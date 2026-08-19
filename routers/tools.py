@@ -5,6 +5,8 @@ from models.tools import (
     SimulateOrderResponse,
     SolveTargetCostRequest,
     SolveTargetCostResponse,
+    TvmCalculateRequest,
+    TvmCalculateResponse,
 )
 from services.tools_service import ToolsService
 from services.valuation_service import ValuationService
@@ -36,3 +38,13 @@ async def solve_target_cost(req: SolveTargetCostRequest) -> SolveTargetCostRespo
     Validates mathematical boundaries and feasibility.
     """
     return await tools_service.solve_target_cost(req)
+
+
+@router.post("/tvm", response_model=TvmCalculateResponse)
+async def calculate_tvm(req: TvmCalculateRequest) -> TvmCalculateResponse:
+    """
+    Calculates Time Value of Money (TVM) parameters including Future Value,
+    required periodic contributions, starting capital, investment horizon, and return rate (CAGR).
+    """
+    return await tools_service.calculate_tvm(req)
+

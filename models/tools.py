@@ -90,3 +90,66 @@ class SolveTargetCostResponse(BaseModel):
     newTotalShares: float = 0.0
     newTotalCost: float = 0.0
     currency: str = "USD"
+
+
+CompoundingFrequency = Literal[
+    "daily",
+    "weekly",
+    "biweekly",
+    "semimonthly",
+    "monthly",
+    "quarterly",
+    "semiannually",
+    "annually",
+]
+
+TvmSolveMode = Literal["FV", "PMT", "PV", "N", "RATE"]
+PaymentTiming = Literal["end", "beginning"]
+
+
+class TvmScheduleEntryModel(BaseModel):
+    period: int
+    year: int
+    startBalance: float
+    contributions: float
+    interestEarned: float
+    endBalance: float
+    totalContributionsToDate: float
+    totalInterestToDate: float
+
+
+class TvmCalculateRequest(BaseModel):
+    mode: TvmSolveMode = Field(default="FV", description="Variable to solve for: FV, PMT, PV, N, RATE")
+    presentValue: float = Field(default=0.0, ge=0.0, description="Initial lump sum capital / PV")
+    payment: float = Field(default=0.0, ge=0.0, description="Periodic recurring payment / PMT")
+    annualRatePct: float = Field(default=8.0, ge=0.0, description="Annual nominal interest rate (%)")
+    years: float = Field(default=10.0, ge=0.0, description="Total investment horizon in years")
+    compounding: CompoundingFrequency = Field(default="monthly", description="Compounding frequency per year")
+    timing: PaymentTiming = Field(default="end", description="Payment timing: end (ordinary) or beginning (due)")
+    targetFutureValue: float | None = Field(
+        default=None, ge=0.0, description="Target Future Value when solving for PMT, PV, N, or RATE"
+    )
+    currency: str = Field(default="USD", description="Currency denomination (USD or THB)")
+
+
+class TvmCalculateResponse(BaseModel):
+    mode: TvmSolveMode
+    futureValue: float
+    presentValue: float
+    payment: float
+    annualRatePct: float
+    years: float
+    compounding: CompoundingFrequency
+    compoundingPeriodsPerYear: int
+    totalPeriods: int
+    totalPrincipal: float
+    totalContributions: float
+    totalInvested: float
+    totalInterestEarned: float
+    effectiveAnnualRatePct: float
+    multiplier: float
+    currency: str = "USD"
+    schedule: list[TvmScheduleEntryModel] = Field(default_factory=list)
+    isValid: bool = True
+    errorMessage: str = ""
+

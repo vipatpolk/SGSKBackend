@@ -113,3 +113,52 @@ def test_tools_router_solve_target_endpoint(api_client, monkeypatch):
     assert data["isValid"] is True
     assert data["requiredShares"] == 100.0
     assert data["achievedAvgCost"] == 125.0
+
+
+@pytest.mark.unit
+def test_tools_router_tvm_endpoint(api_client, monkeypatch):
+    from models.tools import TvmCalculateResponse
+
+    async def mock_tvm(self, req):
+        return TvmCalculateResponse(
+            mode="FV",
+            futureValue=73571.18,
+            presentValue=10000.0,
+            payment=500.0,
+            annualRatePct=8.0,
+            years=10.0,
+            compounding="monthly",
+            compoundingPeriodsPerYear=12,
+            totalPeriods=120,
+            totalPrincipal=10000.0,
+            totalContributions=60000.0,
+            totalInvested=70000.0,
+            totalInterestEarned=3571.18,
+            effectiveAnnualRatePct=8.30,
+            multiplier=1.05,
+            currency="USD",
+            schedule=[],
+            isValid=True,
+        )
+
+    monkeypatch.setattr(ToolsService, "calculate_tvm", mock_tvm)
+
+    payload = {
+        "mode": "FV",
+        "presentValue": 10000.0,
+        "payment": 500.0,
+        "annualRatePct": 8.0,
+        "years": 10.0,
+        "compounding": "monthly",
+        "timing": "end",
+        "currency": "USD",
+    }
+
+    res = api_client.post("/portfolio/tools/tvm", json=payload)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["isValid"] is True
+    assert data["futureValue"] == 73571.18
+    assert data["totalPrincipal"] == 10000.0
+    assert data["compoundingPeriodsPerYear"] == 12
+

@@ -1,6 +1,8 @@
 import logging
+import math
 
 from models.tools import (
+    CompoundingFrequency,
     PositionSnapshotModel,
     SimulateOrderRequest,
     SimulateOrderResponse,
@@ -8,10 +10,24 @@ from models.tools import (
     SimulationStateMetrics,
     SolveTargetCostRequest,
     SolveTargetCostResponse,
+    TvmCalculateRequest,
+    TvmCalculateResponse,
+    TvmScheduleEntryModel,
 )
 from services.valuation_service import ValuationService
 
 logger = logging.getLogger(__name__)
+
+COMPOUNDING_PERIODS: dict[CompoundingFrequency, int] = {
+    "daily": 365,
+    "weekly": 52,
+    "biweekly": 26,
+    "semimonthly": 24,
+    "monthly": 12,
+    "quarterly": 4,
+    "semiannually": 2,
+    "annually": 1,
+}
 
 
 class ToolsService:
@@ -249,3 +265,229 @@ class ToolsService:
             logger.warning(f"Failed to auto-resolve position for {lookup_symbol}: {err}")
 
         return snapshot or PositionSnapshotModel(symbol=lookup_symbol, currency=currency)
+
+    async def calculate_tvm(self, req: TvmCalculateRequest) -> TvmCalculateResponse:
+        m = COMPOUNDING_PERIODS.get(req.compounding, 12)
+        pv = max(0.0, float(req.presentValue))
+        pmt = max(0.0, float(req.payment))
+        rate_pct = max(0.0, float(req.annualRatePct))
+        years = max(0.0, float(req.years))
+        fv = max(0.0, float(req.targetFutureValue or 0.0))
+        t = 1.0 if req.timing == "beginning" else 0.0
+
+        is_valid = True
+        error_message = ""
+
+        if req.mode == "FV":
+            fv = self._tvm_future_value(pv, pmt, rate_pct, years, m, t)
+        elif req.mode == "PMT":
+            if years <= 0:
+                is_valid = False
+                error_message = "Investment horizon must be greater than 0 years to calculate payment."
+                pmt = 0.0
+            else:
+                pmt = self._tvm_payment(fv, pv, rate_pct, years, m, t)
+        elif req.mode == "PV":
+            if years <= 0:
+                pv = fv
+            else:
+                pv = self._tvm_present_value(fv, pmt, rate_pct, years, m, t)
+        elif req.mode == "N":
+            res_years, is_valid, error_message = self._tvm_years(fv, pv, pmt, rate_pct, m, t)
+            years = res_years
+        elif req.mode == "RATE":
+            if years <= 0:
+                is_valid = False
+                error_message = "Investment horizon must be greater than 0 years to calculate return rate."
+                rate_pct = 0.0
+            else:
+                res_rate, is_valid, error_message = self._tvm_rate(fv, pv, pmt, years, m, t)
+                rate_pct = res_rate
+
+        total_periods = int(math.ceil(years * m))
+        total_principal = pv
+        total_contributions = pmt * total_periods
+        total_invested = total_principal + total_contributions
+        total_interest = max(0.0, fv - total_invested)
+
+        periodic_rate = (rate_pct / 100.0) / m
+        ear_pct = ((math.pow(1.0 + periodic_rate, m) - 1.0) * 100.0) if m > 0 else rate_pct
+        multiplier = (fv / total_invested) if total_invested > 0 else (1.0 if fv > 0 else 0.0)
+
+        schedule: list[TvmScheduleEntryModel] = []
+        if is_valid and years > 0:
+            schedule = self._tvm_generate_schedule(pv, pmt, rate_pct, years, m, t)
+
+        return TvmCalculateResponse(
+            mode=req.mode,
+            futureValue=round(fv, 2),
+            presentValue=round(pv, 2),
+            payment=round(pmt, 2),
+            annualRatePct=round(rate_pct, 4),
+            years=round(years, 2),
+            compounding=req.compounding,
+            compoundingPeriodsPerYear=m,
+            totalPeriods=total_periods,
+            totalPrincipal=round(total_principal, 2),
+            totalContributions=round(total_contributions, 2),
+            totalInvested=round(total_invested, 2),
+            totalInterestEarned=round(total_interest, 2),
+            effectiveAnnualRatePct=round(ear_pct, 4),
+            multiplier=round(multiplier, 2),
+            currency=req.currency,
+            schedule=schedule,
+            isValid=is_valid,
+            errorMessage=error_message,
+        )
+
+    def _tvm_future_value(self, pv: float, pmt: float, rate_pct: float, years: float, m: int, t: float) -> float:
+        n = years * m
+        if n <= 0:
+            return pv
+        i = (rate_pct / 100.0) / m
+        if abs(i) < 1e-12:
+            return pv + pmt * n
+        growth = math.pow(1.0 + i, n)
+        fv_pv = pv * growth
+        fv_pmt = pmt * ((growth - 1.0) / i) * (1.0 + i * t)
+        return max(0.0, fv_pv + fv_pmt)
+
+    def _tvm_present_value(self, fv: float, pmt: float, rate_pct: float, years: float, m: int, t: float) -> float:
+        n = years * m
+        if n <= 0:
+            return fv
+        i = (rate_pct / 100.0) / m
+        if abs(i) < 1e-12:
+            return max(0.0, fv - pmt * n)
+        growth = math.pow(1.0 + i, n)
+        fv_pmt = pmt * ((growth - 1.0) / i) * (1.0 + i * t)
+        return max(0.0, (fv - fv_pmt) / growth)
+
+    def _tvm_payment(self, fv: float, pv: float, rate_pct: float, years: float, m: int, t: float) -> float:
+        n = years * m
+        if n <= 0:
+            return 0.0
+        i = (rate_pct / 100.0) / m
+        if abs(i) < 1e-12:
+            return max(0.0, (fv - pv) / n)
+        growth = math.pow(1.0 + i, n)
+        fv_pv = pv * growth
+        annuity_factor = ((growth - 1.0) / i) * (1.0 + i * t)
+        if abs(annuity_factor) < 1e-12:
+            return 0.0
+        return max(0.0, (fv - fv_pv) / annuity_factor)
+
+    def _tvm_years(
+        self, fv: float, pv: float, pmt: float, rate_pct: float, m: int, t: float
+    ) -> tuple[float, bool, str]:
+        if fv <= pv:
+            return 0.0, True, ""
+        i = (rate_pct / 100.0) / m
+        if abs(i) < 1e-12:
+            if pmt <= 0:
+                return 0.0, False, "With 0% return rate and 0 payment, target future value cannot be reached."
+            n = (fv - pv) / pmt
+            return n / m, True, ""
+
+        adj_pmt = pmt * (1.0 + i * t)
+        if pmt <= 0:
+            if pv <= 0:
+                return 0.0, False, "Both starting principal and periodic payment are zero."
+            n = math.log(fv / pv) / math.log(1.0 + i)
+            return n / m, True, ""
+
+        num = fv * i + adj_pmt
+        den = pv * i + adj_pmt
+        if den <= 0 or num / den <= 0:
+            return 0.0, False, "Cannot solve for time horizon with given inputs."
+
+        n = math.log(num / den) / math.log(1.0 + i)
+        return n / m, True, ""
+
+    def _tvm_rate(
+        self, fv: float, pv: float, pmt: float, years: float, m: int, t: float
+    ) -> tuple[float, bool, str]:
+        n = max(1.0, years * m)
+        total_invested = pv + pmt * n
+        if fv <= total_invested:
+            if fv == total_invested:
+                return 0.0, True, ""
+            if fv <= 0:
+                return 0.0, False, "Target Future Value must be greater than 0."
+
+        def f(rate_i: float) -> float:
+            if abs(rate_i) < 1e-12:
+                return pv + pmt * n - fv
+            growth = math.pow(1.0 + rate_i, n)
+            return pv * growth + pmt * ((growth - 1.0) / rate_i) * (1.0 + rate_i * t) - fv
+
+        # Bisection search
+        low = -0.95 / m
+        high = 5.0 / m
+        f_low = f(low)
+        f_high = f(high)
+
+        if f_low * f_high > 0:
+            return 0.0, False, "Could not find a feasible return rate within standard boundaries."
+
+        for _ in range(100):
+            mid = (low + high) / 2.0
+            f_mid = f(mid)
+            if abs(f_mid) < 1e-7 or (high - low) < 1e-9:
+                return mid * m * 100.0, True, ""
+            if f_low * f_mid < 0:
+                high = mid
+                f_high = f_mid
+            else:
+                low = mid
+                f_low = f_mid
+
+        return ((low + high) / 2.0) * m * 100.0, True, ""
+
+    def _tvm_generate_schedule(
+        self, pv: float, pmt: float, rate_pct: float, years: float, m: int, t: float
+    ) -> list[TvmScheduleEntryModel]:
+        total_years = min(100, max(1, int(math.ceil(years))))
+        periodic_rate = (rate_pct / 100.0) / m
+
+        schedule: list[TvmScheduleEntryModel] = []
+        current_balance = max(0.0, pv)
+        cum_contrib = pv
+        cum_interest = 0.0
+
+        for y in range(1, total_years + 1):
+            start_balance = current_balance
+            year_contrib = 0.0
+            year_interest = 0.0
+
+            for _ in range(m):
+                if t == 1.0:
+                    current_balance += pmt
+                    year_contrib += pmt
+                    interest = current_balance * periodic_rate
+                    current_balance += interest
+                    year_interest += interest
+                else:
+                    interest = current_balance * periodic_rate
+                    current_balance += interest + pmt
+                    year_contrib += pmt
+                    year_interest += interest
+
+            cum_contrib += year_contrib
+            cum_interest += year_interest
+
+            schedule.append(
+                TvmScheduleEntryModel(
+                    period=y * m,
+                    year=y,
+                    startBalance=round(start_balance, 2),
+                    contributions=round(year_contrib, 2),
+                    interestEarned=round(year_interest, 2),
+                    endBalance=round(current_balance, 2),
+                    totalContributionsToDate=round(cum_contrib, 2),
+                    totalInterestToDate=round(cum_interest, 2),
+                )
+            )
+
+        return schedule
+
