@@ -235,5 +235,3 @@ class RebalanceCalculateResponse(BaseModel):
     orders: list[RebalanceTradeOrderModel] = Field(default_factory=list)
     isValid: bool = True
     errorMessage: str = ""
-
-

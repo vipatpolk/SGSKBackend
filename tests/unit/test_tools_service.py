@@ -483,6 +483,3 @@ async def test_tools_service_calculate_rebalance_standard_and_no_sell(monkeypatc
     assert res_no_sell.cashContribution == 10000.0
     assert res_no_sell.totalBuyAmount == 10000.0
     assert res_no_sell.totalSellAmount == 0.0
-
-
-

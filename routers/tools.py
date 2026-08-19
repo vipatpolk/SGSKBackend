@@ -58,5 +58,3 @@ async def calculate_rebalance(req: RebalanceCalculateRequest) -> RebalanceCalcul
     and no-sell (minimum inflow & custom contribution) modes.
     """
     return await tools_service.calculate_rebalance(req)
-
-

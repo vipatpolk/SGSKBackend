@@ -212,5 +212,3 @@ def test_tools_router_rebalance_endpoint(api_client, monkeypatch):
     assert data["totalBuyAmount"] == 5000.0
     assert data["totalSellAmount"] == 5000.0
     assert len(data["groups"]) == 1
-
-

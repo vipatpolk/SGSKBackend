@@ -20,7 +20,6 @@ from models.tools import (
     TvmCalculateResponse,
     TvmScheduleEntryModel,
 )
-
 from services.valuation_service import ValuationService
 
 logger = logging.getLogger(__name__)
@@ -411,9 +410,7 @@ class ToolsService:
         n = math.log(num / den) / math.log(1.0 + i)
         return n / m, True, ""
 
-    def _tvm_rate(
-        self, fv: float, pv: float, pmt: float, years: float, m: int, t: float
-    ) -> tuple[float, bool, str]:
+    def _tvm_rate(self, fv: float, pv: float, pmt: float, years: float, m: int, t: float) -> tuple[float, bool, str]:
         n = max(1.0, years * m)
         total_invested = pv + pmt * n
         if fv <= total_invested:
@@ -522,7 +519,9 @@ class ToolsService:
         for atype in all_types:
             pos_list = class_map[atype]
             class_total_value = sum(pos.holdingValue for pos in pos_list)
-            class_portfolio_pct = (class_total_value / total_portfolio_value * 100.0) if total_portfolio_value > 0 else 0.0
+            class_portfolio_pct = (
+                (class_total_value / total_portfolio_value * 100.0) if total_portfolio_value > 0 else 0.0
+            )
 
             target_sum = sum(max(0.0, req.targetAllocations.get(p.symbol, 0.0)) for p in pos_list)
             is_valid = abs(target_sum - 100.0) <= 0.1 or (target_sum == 0 and len(pos_list) == 0)
@@ -538,7 +537,9 @@ class ToolsService:
                     tval = (tpct / 100.0) * class_total_value if class_total_value > 0 else 0.0
                     delta_val = tval - pos.holdingValue
                     cur_class_pct = (pos.holdingValue / class_total_value * 100.0) if class_total_value > 0 else 0.0
-                    cur_port_pct = (pos.holdingValue / total_portfolio_value * 100.0) if total_portfolio_value > 0 else 0.0
+                    cur_port_pct = (
+                        (pos.holdingValue / total_portfolio_value * 100.0) if total_portfolio_value > 0 else 0.0
+                    )
 
                     act: RebalanceAction
                     if delta_val > 0.01:
@@ -597,7 +598,9 @@ class ToolsService:
                         tval = (tpct / 100.0) * new_class_val
                         delta_val = max(0.0, tval - pos.holdingValue)
                         cur_class_pct = (pos.holdingValue / class_total_value * 100.0) if class_total_value > 0 else 0.0
-                        cur_port_pct = (pos.holdingValue / total_portfolio_value * 100.0) if total_portfolio_value > 0 else 0.0
+                        cur_port_pct = (
+                            (pos.holdingValue / total_portfolio_value * 100.0) if total_portfolio_value > 0 else 0.0
+                        )
                         is_anchor = pos.symbol == anchor_sym or delta_val < 0.01
 
                         no_sell_act: RebalanceAction = "BUY" if delta_val >= 0.01 else "BALANCED"
@@ -628,7 +631,11 @@ class ToolsService:
                 else:
                     # Custom Deposit Mode
                     deposit = max(0.0, req.customCashDeposit)
-                    share_of_deposit = (class_total_value / total_portfolio_value * deposit) if total_portfolio_value > 0 else (deposit / max(1, len(all_types)))
+                    share_of_deposit = (
+                        (class_total_value / total_portfolio_value * deposit)
+                        if total_portfolio_value > 0
+                        else (deposit / max(1, len(all_types)))
+                    )
                     target_class_val = class_total_value + share_of_deposit
 
                     deficits = []
@@ -655,7 +662,9 @@ class ToolsService:
                         allocated_cash += b_amt
                         tval = pos.holdingValue + b_amt
                         cur_class_pct = (pos.holdingValue / class_total_value * 100.0) if class_total_value > 0 else 0.0
-                        cur_port_pct = (pos.holdingValue / total_portfolio_value * 100.0) if total_portfolio_value > 0 else 0.0
+                        cur_port_pct = (
+                            (pos.holdingValue / total_portfolio_value * 100.0) if total_portfolio_value > 0 else 0.0
+                        )
 
                         custom_act: RebalanceAction = "BUY" if b_amt >= 0.01 else "BALANCED"
                         dshares = b_amt / pos.currentPrice if b_amt >= 0.01 and pos.currentPrice > 0 else 0.0
@@ -682,7 +691,6 @@ class ToolsService:
                                 isAnchorPosition=b_amt < 0.01 and tpct > 0,
                             )
                         )
-
 
                     group_buy = allocated_cash
                     total_inflow_contribution += allocated_cash
@@ -759,7 +767,7 @@ class ToolsService:
             groups=groups,
             orders=orders,
             isValid=is_overall_valid,
-            errorMessage="" if is_overall_valid else "Target percentages in one or more asset classes do not sum to 100%.",
+            errorMessage=""
+            if is_overall_valid
+            else "Target percentages in one or more asset classes do not sum to 100%.",
         )
-
-
