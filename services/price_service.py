@@ -71,7 +71,8 @@ class PriceService:
 
     @staticmethod
     def _is_fund(s: dict[str, str]) -> bool:
-        return s.get("assetType") == "mutual-fund" or s.get("symbol", "").upper().endswith(".BKFUND")
+        sym = s.get("symbol", "").upper()
+        return s.get("assetType") == "mutual-fund" or sym.endswith(".FUND") or sym.endswith(".BKFUND")
 
     def _extract_yahoo_price(self, meta: dict[str, Any]) -> float:
         return meta.get("regularMarketPrice") or meta.get("chartPreviousClose") or meta.get("previousClose") or 0.0

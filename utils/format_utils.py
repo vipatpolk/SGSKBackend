@@ -26,7 +26,7 @@ def get_asset_type(asset_type: str | None = None, symbol: str | None = None) -> 
 
     if symbol:
         sym = symbol.upper()
-        if sym.endswith(".BKFUND"):
+        if sym.endswith(".FUND") or sym.endswith(".BKFUND"):
             return "mutual-fund"
         if sym.endswith(".BK"):
             return "thai-stock"
@@ -39,6 +39,8 @@ def to_yahoo_symbol(symbol: str) -> str:
     if not symbol:
         return ""
     trimmed = symbol.strip()
+    if trimmed.upper().endswith(".FUND"):
+        return trimmed[:-5]
     if trimmed.upper().endswith(".BKFUND"):
         return trimmed[:-7]
     if trimmed.upper().endswith(".BK"):
@@ -62,7 +64,7 @@ def resolve_quote_currency(quote: str) -> str:
 def display_symbol(symbol: str) -> str:
     if not symbol:
         return ""
-    return re.sub(r"(?i)\.(BKFUND|BK|CRYPTO)$", "", symbol.strip())
+    return re.sub(r"(?i)\.(FUND|BKFUND|BK|CRYPTO)$", "", symbol.strip())
 
 
 def convert_currency(amount: float, from_curr: str, to_curr: str, exchange_rate: float) -> float:

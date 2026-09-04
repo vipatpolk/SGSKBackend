@@ -62,7 +62,7 @@ def mock_valuation_service():
             lots=[],
         ),
         PortfolioPosition(
-            symbol="K-USA-A(D).BKFUND",
+            symbol="K-USA-A(D).FUND",
             displaySymbol="K-USA-A(D)",
             name="K USA Fund",
             assetType="mutual-fund",
@@ -100,7 +100,7 @@ def mock_valuation_service():
             txType="BUY",
         ),
         Transaction(
-            symbol="K-USA-A(D).BKFUND",
+            symbol="K-USA-A(D).FUND",
             date="2025-01-01",
             quantity=500.0,
             price=20.0,
@@ -139,7 +139,7 @@ def mock_nav_service():
     service = MagicMock()
     service.fetch_all_fund_dividends = AsyncMock(
         return_value={
-            "K-USA-A(D).BKFUND": [
+            "K-USA-A(D).FUND": [
                 {
                     "proj_id": "M0159_2555",
                     "class_abbr_name": "K-USA-A(D)",
@@ -186,7 +186,7 @@ async def test_dividend_service_calculation(mock_valuation_service, mock_price_s
     assert aapl_rec.convertedNetAmount == pytest.approx(74.375)
 
     # Check K-USA-A(D) SEC record (500 shares * 0.5 THB = 250 THB gross, 25 THB WHT, 225 THB net)
-    k_usa_rec = next(r for r in res.records if r.symbol == "K-USA-A(D).BKFUND")
+    k_usa_rec = next(r for r in res.records if r.symbol == "K-USA-A(D).FUND")
     assert k_usa_rec.grossAmount == 250.0
     assert k_usa_rec.withholdingTax == 25.0
     assert k_usa_rec.netAmount == 225.0

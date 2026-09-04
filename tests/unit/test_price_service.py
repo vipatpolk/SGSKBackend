@@ -36,6 +36,7 @@ def test_is_crypto_and_fund_helpers(service):
     assert service._is_crypto({"assetType": "crypto", "symbol": "BTC"}) is True
     assert service._is_crypto({"symbol": "AAPL"}) is False
 
+    assert service._is_fund({"symbol": "K-CHANGE.FUND"}) is True
     assert service._is_fund({"symbol": "K-CHANGE.BKFUND"}) is True
     assert service._is_fund({"assetType": "mutual-fund", "symbol": "K-CHANGE"}) is True
     assert service._is_fund({"symbol": "AAPL"}) is False

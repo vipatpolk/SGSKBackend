@@ -51,7 +51,7 @@ class NavService:
         if cached is not None:
             return cast(dict[str, Any], cached)
 
-        clean_symbol = re.sub(r"(?i)\.BKFUND$", "", symbol).strip()
+        clean_symbol = re.sub(r"(?i)\.(FUND|BKFUND)$", "", symbol).strip()
         sym_upper = clean_symbol.upper()
 
         profile = await self.fetch_fund_profile(clean_symbol, sym_upper)
@@ -195,7 +195,7 @@ class NavService:
         if cached is not None:
             return cast(list[dict[str, Any]], cached)
 
-        clean_symbol = re.sub(r"(?i)\.BKFUND$", "", symbol).strip()
+        clean_symbol = re.sub(r"(?i)\.(FUND|BKFUND)$", "", symbol).strip()
         sym_upper = clean_symbol.upper()
 
         headers = self.headers

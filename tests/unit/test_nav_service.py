@@ -24,8 +24,8 @@ async def test_fetch_single_fund_nav_not_found(service, monkeypatch):
 
     monkeypatch.setattr(service, "fetch_fund_profile", mock_fetch_fund_profile)
 
-    res = await service.fetch_single_fund_nav("UNKNOWN_FUND.BKFUND")
-    assert res["originalSymbol"] == "UNKNOWN_FUND.BKFUND"
+    res = await service.fetch_single_fund_nav("UNKNOWN_FUND.FUND")
+    assert res["originalSymbol"] == "UNKNOWN_FUND.FUND"
     assert res["data"].price == 0.0
     assert res["data"].currency == "THB"
 
@@ -45,8 +45,12 @@ async def test_fetch_single_fund_nav_success(service, monkeypatch):
     monkeypatch.setattr(service, "fetch_fund_profile", mock_fetch_fund_profile)
     monkeypatch.setattr(service, "fetch_fund_nav_data", mock_fetch_fund_nav_data)
 
-    res = await service.fetch_single_fund_nav("K-CHANGE.BKFUND")
-    assert res["originalSymbol"] == "K-CHANGE.BKFUND"
+    res = await service.fetch_single_fund_nav("K-CHANGE.FUND")
+    assert res["originalSymbol"] == "K-CHANGE.FUND"
     assert res["data"].price == 15.75
     assert res["data"].name == "K-CHANGE MUTUAL FUND"
     assert res["data"].currency == "THB"
+
+    res_bk = await service.fetch_single_fund_nav("K-CHANGE.BKFUND")
+    assert res_bk["originalSymbol"] == "K-CHANGE.BKFUND"
+    assert res_bk["data"].price == 15.75
