@@ -8,9 +8,9 @@ import httpx
 
 from models.transaction import PriceData
 from services.nav_service import NavService
-from utils.cache import ttl_cache
+from utils.cache import singleflight, ttl_cache
 from utils.format_utils import resolve_quote_currency, to_yahoo_symbol
-from utils.http_client import get_http_client, get_outbound_semaphore
+from utils.http_client import get_binance_semaphore, get_http_client, get_yahoo_semaphore
 
 COMMON_CRYPTO_NAMES: dict[str, str] = {
     "BTC": "Bitcoin",
@@ -51,19 +51,26 @@ class PriceService:
         if cached is not None:
             return cast(float, cached)
 
-        pair = f"{from_currency}{to_currency}=X"
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(pair)}?range=1d&interval=1d&includePrePost=false"
-        try:
-            async with get_outbound_semaphore():
-                res = await self.client.get(url)
-            res.raise_for_status()
-            meta = res.json().get("chart", {}).get("result", [{}])[0].get("meta", {})
-            rate = self._extract_yahoo_price(meta)
-            if rate > 0:
-                ttl_cache.set(cache_key, rate, ttl=300.0)
-            return rate
-        except Exception:
-            return 0.0
+        async def _do_fetch_rate() -> float:
+            c = ttl_cache.get(cache_key)
+            if c is not None:
+                return cast(float, c)
+
+            pair = f"{from_currency}{to_currency}=X"
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(pair)}?range=1d&interval=1d&includePrePost=false"
+            try:
+                async with get_yahoo_semaphore():
+                    res = await self.client.get(url)
+                res.raise_for_status()
+                meta = res.json().get("chart", {}).get("result", [{}])[0].get("meta", {})
+                rate = self._extract_yahoo_price(meta)
+                if rate > 0:
+                    ttl_cache.set(cache_key, rate, ttl=300.0)
+                return rate
+            except Exception:
+                return 0.0
+
+        return await singleflight.execute(f"fetch_rate_{from_currency}_{to_currency}", _do_fetch_rate)
 
     @staticmethod
     def _is_crypto(s: dict[str, str]) -> bool:
@@ -108,25 +115,32 @@ class PriceService:
         if cached is not None:
             return symbol, cached
 
-        yahoo_symbol = to_yahoo_symbol(symbol)
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(yahoo_symbol)}?range=1d&interval=1d&includePrePost=false"
-        try:
-            async with get_outbound_semaphore():
-                res = await self.client.get(url)
-            res.raise_for_status()
-            meta = res.json().get("chart", {}).get("result", [{}])[0].get("meta", {})
-            price = self._extract_yahoo_price(meta)
-            data = PriceData(
-                symbol=symbol,
-                name=meta.get("longName") or meta.get("shortName") or "",
-                price=price,
-                currency=meta.get("currency") or "",
-            )
-            if price > 0 or data.name:
-                ttl_cache.set(cache_key, data, ttl=60.0)
-            return symbol, data
-        except Exception:
-            return symbol, PriceData(symbol=symbol, name="", price=0.0, currency="")
+        async def _do_fetch_stock() -> tuple[str, PriceData]:
+            c = ttl_cache.get(cache_key)
+            if c is not None:
+                return symbol, c
+
+            yahoo_symbol = to_yahoo_symbol(symbol)
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(yahoo_symbol)}?range=1d&interval=1d&includePrePost=false"
+            try:
+                async with get_yahoo_semaphore():
+                    res = await self.client.get(url)
+                res.raise_for_status()
+                meta = res.json().get("chart", {}).get("result", [{}])[0].get("meta", {})
+                price = self._extract_yahoo_price(meta)
+                data = PriceData(
+                    symbol=symbol,
+                    name=meta.get("longName") or meta.get("shortName") or "",
+                    price=price,
+                    currency=meta.get("currency") or "",
+                )
+                if price > 0 or data.name:
+                    ttl_cache.set(cache_key, data, ttl=60.0)
+                return symbol, data
+            except Exception:
+                return symbol, PriceData(symbol=symbol, name="", price=0.0, currency="")
+
+        return await singleflight.execute(f"stock_price_{symbol}", _do_fetch_stock)
 
     async def fetch_stock_prices(self, symbols: list[str]) -> dict[str, PriceData]:
         results = await asyncio.gather(*[self._fetch_single_stock(sym) for sym in symbols])
@@ -142,15 +156,21 @@ class PriceService:
         if cached is not None:
             return cached
 
-        try:
-            async with get_outbound_semaphore():
-                res = await self.client.get("https://api.binance.th/api/v1/ticker/price")
-            res.raise_for_status()
-            data = res.json()
-            ttl_cache.set(cache_key, data, ttl=30.0)
-            return data
-        except Exception:
-            return []
+        async def _do_fetch_binance() -> Any:
+            c = ttl_cache.get(cache_key)
+            if c is not None:
+                return c
+            try:
+                async with get_binance_semaphore():
+                    res = await self.client.get("https://api.binance.th/api/v1/ticker/price")
+                res.raise_for_status()
+                data = res.json()
+                ttl_cache.set(cache_key, data, ttl=30.0)
+                return data
+            except Exception:
+                return []
+
+        return await singleflight.execute("fetch_binance_tickers", _do_fetch_binance)
 
     async def _fetch_yahoo_crypto_name(self, symbol: str) -> tuple[str, str]:
         base = re.sub(r"(?i)\.CRYPTO$", "", symbol).strip().upper()
@@ -165,7 +185,7 @@ class PriceService:
         yahoo_symbol = f"{base}-USD"
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(yahoo_symbol)}?range=1d&interval=1d&includePrePost=false"
         try:
-            async with get_outbound_semaphore():
+            async with get_yahoo_semaphore():
                 res = await self.client.get(url)
             res.raise_for_status()
             meta = res.json().get("chart", {}).get("result", [{}])[0].get("meta", {})
@@ -221,33 +241,40 @@ class PriceService:
         if cached is not None:
             return symbol, cached
 
-        yahoo_symbol = to_yahoo_symbol(symbol)
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(yahoo_symbol)}?range=5y&interval=1mo&events=div"
-        try:
-            async with get_outbound_semaphore():
-                res = await self.client.get(url)
-            res.raise_for_status()
-            result = res.json().get("chart", {}).get("result", [{}])[0]
-            events = result.get("events", {})
-            div_map = events.get("dividends", {})
-            div_list = []
-            now_ts = time.time()
-            one_year_ago_ts = now_ts - (365 * 24 * 3600)
-            trailing_12m = 0.0
-            if isinstance(div_map, dict):
-                for ts_str, d in div_map.items():
-                    amt = float(d.get("amount", 0.0))
-                    dt = d.get("date", int(ts_str) if ts_str.isdigit() else 0)
-                    div_list.append({"amount": amt, "date": dt})
-                    if dt >= one_year_ago_ts:
-                        trailing_12m += amt
+        async def _do_fetch_div() -> tuple[str, dict[str, Any]]:
+            c = ttl_cache.get(cache_key)
+            if c is not None:
+                return symbol, c
 
-            div_list.sort(key=lambda x: x.get("date", 0), reverse=True)
-            res_data = {"trailing_12m_dps": trailing_12m, "dividends": div_list}
-            ttl_cache.set(cache_key, res_data, ttl=3600.0)
-            return symbol, res_data
-        except Exception:
-            return symbol, {"trailing_12m_dps": 0.0, "dividends": []}
+            yahoo_symbol = to_yahoo_symbol(symbol)
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(yahoo_symbol)}?range=5y&interval=1mo&events=div"
+            try:
+                async with get_yahoo_semaphore():
+                    res = await self.client.get(url)
+                res.raise_for_status()
+                result = res.json().get("chart", {}).get("result", [{}])[0]
+                events = result.get("events", {})
+                div_map = events.get("dividends", {})
+                div_list = []
+                now_ts = time.time()
+                one_year_ago_ts = now_ts - (365 * 24 * 3600)
+                trailing_12m = 0.0
+                if isinstance(div_map, dict):
+                    for ts_str, d in div_map.items():
+                        amt = float(d.get("amount", 0.0))
+                        dt = d.get("date", int(ts_str) if ts_str.isdigit() else 0)
+                        div_list.append({"amount": amt, "date": dt})
+                        if dt >= one_year_ago_ts:
+                            trailing_12m += amt
+
+                div_list.sort(key=lambda x: x.get("date", 0), reverse=True)
+                res_data = {"trailing_12m_dps": trailing_12m, "dividends": div_list}
+                ttl_cache.set(cache_key, res_data, ttl=3600.0)
+                return symbol, res_data
+            except Exception:
+                return symbol, {"trailing_12m_dps": 0.0, "dividends": []}
+
+        return await singleflight.execute(f"stock_div_{symbol}", _do_fetch_div)
 
     async def fetch_stock_dividends(self, symbols: list[str]) -> dict[str, dict[str, Any]]:
         unique = list(

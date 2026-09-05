@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -18,6 +18,7 @@ from services.nav_service import NavService
 from services.price_service import PriceService
 from services.share_lot_service import ShareLotService
 from services.valuation_service import ValuationService
+from utils.cache import singleflight, ttl_cache
 from utils.format_utils import convert_currency, display_symbol, get_asset_type_label
 
 # Standard withholding tax rates
@@ -52,55 +53,69 @@ class DividendService:
         tab_id: str = "all",
     ) -> PortfolioDividendResponse:
         target_currency = currency.upper()
+        cache_key = f"dividend_{tab_id}_{target_currency}"
+        cached = ttl_cache.get(cache_key)
+        if cached is not None:
+            return cast(PortfolioDividendResponse, cached)
 
-        # 1. Fetch portfolio holdings to get current positions, shares, cost basis, exchange rate, and transactions
-        holdings_res = await self.valuation_service.get_portfolio_holdings(tab_id=tab_id, currency=target_currency)
-        exchange_rate = holdings_res.exchangeRate or 1.0
+        async def _do_calc_dividend() -> PortfolioDividendResponse:
+            c = ttl_cache.get(cache_key)
+            if c is not None:
+                return cast(PortfolioDividendResponse, c)
 
-        if holdings_res.error:
-            return PortfolioDividendResponse(
-                currency=target_currency,
-                exchangeRate=exchange_rate,
-                totalGrossDividends=0.0,
-                totalNetDividends=0.0,
-                totalWithholdingTax=0.0,
-                effectiveTaxRate=0.0,
-                projectedAnnualDividends=0.0,
-                portfolioDividendYield=0.0,
-                portfolioYieldOnCost=0.0,
-                annualDividends=[],
-                monthlyDividends=[],
-                assetTypeSummaries=[],
-                symbolSummaries=[],
-                records=[],
-                error=holdings_res.error,
+            # 1. Fetch portfolio holdings to get current positions, shares, cost basis, exchange rate, and transactions
+            holdings_res = await self.valuation_service.get_portfolio_holdings(tab_id=tab_id, currency=target_currency)
+            exchange_rate = holdings_res.exchangeRate or 1.0
+
+            if holdings_res.error:
+                return PortfolioDividendResponse(
+                    currency=target_currency,
+                    exchangeRate=exchange_rate,
+                    totalGrossDividends=0.0,
+                    totalNetDividends=0.0,
+                    totalWithholdingTax=0.0,
+                    effectiveTaxRate=0.0,
+                    projectedAnnualDividends=0.0,
+                    portfolioDividendYield=0.0,
+                    portfolioYieldOnCost=0.0,
+                    annualDividends=[],
+                    monthlyDividends=[],
+                    assetTypeSummaries=[],
+                    symbolSummaries=[],
+                    records=[],
+                    error=holdings_res.error,
+                )
+
+            # 2. Gather non-crypto positions (open + closed) for 100% API-driven dividend fetching
+            open_positions = [pos for pos in holdings_res.openPositions if pos.assetType != "crypto"]
+            closed_positions = [pos for pos in (holdings_res.closedPositions or []) if pos.assetType != "crypto"]
+            all_positions = open_positions + closed_positions
+
+            stock_symbols = list(set([pos.symbol for pos in all_positions if pos.assetType in ("us-stock", "thai-stock")]))
+            fund_symbols = list(set([pos.symbol for pos in all_positions if pos.assetType == "mutual-fund"]))
+
+            # 3. Fetch dividend histories from SEC Thailand and Yahoo Finance APIs concurrently
+            stock_div_task = self.price_service.fetch_stock_dividends(stock_symbols)
+            fund_div_task = self.nav_service.fetch_all_fund_dividends(fund_symbols)
+
+            stock_div_data, fund_div_data = await asyncio.gather(stock_div_task, fund_div_task)
+
+            res = self.calculate_dividend_analytics(
+                open_positions=open_positions,
+                closed_positions=closed_positions,
+                raw_transactions=holdings_res.rawTransactions or [],
+                stock_div_data=stock_div_data,
+                fund_div_data=fund_div_data,
+                exchange_rate=exchange_rate,
+                target_currency=target_currency,
+                total_portfolio_value=holdings_res.summary.totalValue,
+                total_open_invested=holdings_res.summary.openInvested,
             )
+            if not res.error:
+                ttl_cache.set(cache_key, res, ttl=120.0)
+            return res
 
-        # 2. Gather non-crypto positions (open + closed) for 100% API-driven dividend fetching
-        open_positions = [pos for pos in holdings_res.openPositions if pos.assetType != "crypto"]
-        closed_positions = [pos for pos in (holdings_res.closedPositions or []) if pos.assetType != "crypto"]
-        all_positions = open_positions + closed_positions
-
-        stock_symbols = list(set([pos.symbol for pos in all_positions if pos.assetType in ("us-stock", "thai-stock")]))
-        fund_symbols = list(set([pos.symbol for pos in all_positions if pos.assetType == "mutual-fund"]))
-
-        # 3. Fetch dividend histories from SEC Thailand and Yahoo Finance APIs concurrently
-        stock_div_task = self.price_service.fetch_stock_dividends(stock_symbols)
-        fund_div_task = self.nav_service.fetch_all_fund_dividends(fund_symbols)
-
-        stock_div_data, fund_div_data = await asyncio.gather(stock_div_task, fund_div_task)
-
-        return self.calculate_dividend_analytics(
-            open_positions=open_positions,
-            closed_positions=closed_positions,
-            raw_transactions=holdings_res.rawTransactions or [],
-            stock_div_data=stock_div_data,
-            fund_div_data=fund_div_data,
-            exchange_rate=exchange_rate,
-            target_currency=target_currency,
-            total_portfolio_value=holdings_res.summary.totalValue,
-            total_open_invested=holdings_res.summary.openInvested,
-        )
+        return await singleflight.execute(f"calc_dividend_{tab_id}_{target_currency}", _do_calc_dividend)
 
     def calculate_dividend_analytics(
         self,

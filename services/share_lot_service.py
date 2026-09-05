@@ -16,10 +16,10 @@ from models.transaction import (
     SymbolTransactionSummary,
     Transaction,
 )
-from utils.cache import ttl_cache
+from utils.cache import singleflight, ttl_cache
 from utils.format_utils import get_asset_type, normalize_asset_type
 from utils.google_auth import get_google_auth_headers
-from utils.http_client import get_http_client, get_outbound_semaphore
+from utils.http_client import get_http_client, get_sheets_semaphore
 
 
 class ShareLotService:
@@ -36,29 +36,36 @@ class ShareLotService:
         if cached is not None:
             return cast(SheetResult, cached)
 
-        tab = next((t for t in ASSET_TABS if t["id"] == tab_id), None)
-        if not tab or not tab["sheetGid"]:
-            return self.create_empty_result(f"Invalid tab id: {tab_id}", False)
+        async def _do_fetch() -> SheetResult:
+            c = ttl_cache.get(cache_key)
+            if c is not None:
+                return cast(SheetResult, c)
 
-        url = get_sheet_export_url(tab["sheetGid"])
-        is_closed = tab["id"] == "closed-position"
-        asset_type = tab["id"]
-        headers = get_google_auth_headers()
+            tab = next((t for t in ASSET_TABS if t["id"] == tab_id), None)
+            if not tab or not tab["sheetGid"]:
+                return self.create_empty_result(f"Invalid tab id: {tab_id}", False)
 
-        try:
-            async with get_outbound_semaphore():
-                res = await self.client.get(url, headers=headers)
-            res.raise_for_status()
-            csv_text = res.text
+            url = get_sheet_export_url(tab["sheetGid"])
+            is_closed = tab["id"] == "closed-position"
+            asset_type = tab["id"]
+            headers = get_google_auth_headers()
 
-            transactions = self.parse_csv(csv_text, asset_type)
-            summaries, closed_summaries, transaction_summaries = self.process_transactions(transactions)
+            try:
+                async with get_sheets_semaphore():
+                    res = await self.client.get(url, headers=headers)
+                res.raise_for_status()
+                csv_text = res.text
 
-            result = self.build_result(summaries, closed_summaries, transaction_summaries, transactions, is_closed)
-            ttl_cache.set(cache_key, result, ttl=120.0)
-            return result
-        except Exception as e:
-            return self.create_empty_result(f"Failed to fetch data: {e}", is_closed)
+                transactions = self.parse_csv(csv_text, asset_type)
+                summaries, closed_summaries, transaction_summaries = self.process_transactions(transactions)
+
+                result = self.build_result(summaries, closed_summaries, transaction_summaries, transactions, is_closed)
+                ttl_cache.set(cache_key, result, ttl=120.0)
+                return result
+            except Exception as e:
+                return self.create_empty_result(f"Failed to fetch data: {e}", is_closed)
+
+        return await singleflight.execute(f"fetch_sheet_{tab_id}", _do_fetch)
 
     async def fetch_all_sheets(self) -> SheetResult:
         cache_key = "sheet_all"
@@ -66,26 +73,33 @@ class ShareLotService:
         if cached is not None:
             return cast(SheetResult, cached)
 
-        sheet_tabs = [t for t in ASSET_TABS if t["sheetGid"]]
+        async def _do_fetch_all() -> SheetResult:
+            c = ttl_cache.get(cache_key)
+            if c is not None:
+                return cast(SheetResult, c)
 
-        async def fetch_and_parse(tab):
-            try:
-                headers = get_google_auth_headers()
-                async with get_outbound_semaphore():
-                    res = await self.client.get(get_sheet_export_url(tab["sheetGid"]), headers=headers)
-                res.raise_for_status()
-                return self.parse_csv(res.text, tab["id"])
-            except Exception:
-                return []
+            sheet_tabs = [t for t in ASSET_TABS if t["sheetGid"]]
 
-        results = await asyncio.gather(*[fetch_and_parse(t) for t in sheet_tabs])
-        all_transactions = [tx for sublist in results for tx in sublist]
+            async def fetch_and_parse(tab):
+                try:
+                    headers = get_google_auth_headers()
+                    async with get_sheets_semaphore():
+                        res = await self.client.get(get_sheet_export_url(tab["sheetGid"]), headers=headers)
+                    res.raise_for_status()
+                    return self.parse_csv(res.text, tab["id"])
+                except Exception:
+                    return []
 
-        summaries, closed_summaries, transaction_summaries = self.process_transactions(all_transactions)
+            results = await asyncio.gather(*[fetch_and_parse(t) for t in sheet_tabs])
+            all_transactions = [tx for sublist in results for tx in sublist]
 
-        result = self.build_result(summaries, closed_summaries, transaction_summaries, all_transactions, False)
-        ttl_cache.set(cache_key, result, ttl=120.0)
-        return result
+            summaries, closed_summaries, transaction_summaries = self.process_transactions(all_transactions)
+
+            result = self.build_result(summaries, closed_summaries, transaction_summaries, all_transactions, False)
+            ttl_cache.set(cache_key, result, ttl=120.0)
+            return result
+
+        return await singleflight.execute("fetch_sheet_all", _do_fetch_all)
 
     def create_empty_result(self, error: str, is_closed: bool) -> SheetResult:
         return SheetResult(

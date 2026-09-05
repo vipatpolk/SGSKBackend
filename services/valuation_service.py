@@ -12,7 +12,7 @@ from models.portfolio import (
 from models.transaction import ClosedShareLot, SheetResult
 from services.price_service import PriceService
 from services.share_lot_service import ShareLotService
-from utils.cache import ttl_cache
+from utils.cache import singleflight, ttl_cache
 from utils.format_utils import (
     convert_currency,
     display_symbol,
@@ -52,42 +52,55 @@ class ValuationService:
         if base_cached is not None:
             sheet_result, price_data_map, exchange_rate = base_cached
         else:
-            is_all = tab_id == "all"
+            async def _resolve_base() -> tuple[SheetResult, dict[str, Any], float]:
+                c = ttl_cache.get(base_cache_key)
+                if c is not None:
+                    return cast(tuple[SheetResult, dict[str, Any], float], c)
 
-            if is_all:
-                sheet_result = await self.share_lot_service.fetch_all_sheets()
-            else:
-                sheet_result = await self.share_lot_service.fetch_sheet(tab_id)
+                is_all = tab_id == "all"
+                if is_all:
+                    s_res = await self.share_lot_service.fetch_all_sheets()
+                else:
+                    s_res = await self.share_lot_service.fetch_sheet(tab_id)
 
-            if sheet_result.error:
-                return self._create_empty_response(tab_id, target_currency, sheet_result.error)
+                if s_res.error:
+                    return s_res, {}, 1.0
 
-            # Extract symbols for price resolution
-            candidates: list[dict[str, str]] = []
-            seen = set()
-            for o_item in sheet_result.summaries or []:
-                if o_item.symbol and o_item.symbol not in seen:
-                    seen.add(o_item.symbol)
-                    candidates.append({"symbol": o_item.symbol, "assetType": o_item.assetType})
-            for c_item in sheet_result.closedSummaries or []:
-                if c_item.symbol and c_item.symbol not in seen:
-                    seen.add(c_item.symbol)
-                    candidates.append({"symbol": c_item.symbol, "assetType": c_item.assetType})
-            for t_item in sheet_result.transactionSummaries or []:
-                if t_item.symbol and t_item.symbol not in seen:
-                    seen.add(t_item.symbol)
-                    candidates.append({"symbol": t_item.symbol, "assetType": t_item.assetType})
+                # Extract symbols for price resolution
+                candidates: list[dict[str, str]] = []
+                seen = set()
+                for o_item in s_res.summaries or []:
+                    if o_item.symbol and o_item.symbol not in seen:
+                        seen.add(o_item.symbol)
+                        candidates.append({"symbol": o_item.symbol, "assetType": o_item.assetType})
+                for c_item in s_res.closedSummaries or []:
+                    if c_item.symbol and c_item.symbol not in seen:
+                        seen.add(c_item.symbol)
+                        candidates.append({"symbol": c_item.symbol, "assetType": c_item.assetType})
+                for t_item in s_res.transactionSummaries or []:
+                    if t_item.symbol and t_item.symbol not in seen:
+                        seen.add(t_item.symbol)
+                        candidates.append({"symbol": t_item.symbol, "assetType": t_item.assetType})
 
-            price_data_map = {}
-            exchange_rate = 1.0
-            if candidates:
-                market_res = await self.price_service.fetch_prices_and_rate(candidates)
-                price_data_map = market_res.get("prices", {})
-                exchange_rate = float(market_res.get("rate", 1.0) or 1.0)
-            else:
-                exchange_rate = await self.price_service.fetch_exchange_rate("USD", "THB") or 1.0
+                p_map: dict[str, Any] = {}
+                ex_rate: float = 1.0
+                if candidates:
+                    market_res = await self.price_service.fetch_prices_and_rate(candidates)
+                    p_map = market_res.get("prices", {})
+                    ex_rate = float(market_res.get("rate", 1.0) or 1.0)
+                else:
+                    ex_rate = await self.price_service.fetch_exchange_rate("USD", "THB") or 1.0
 
-            ttl_cache.set(base_cache_key, (sheet_result, price_data_map, exchange_rate), ttl=60.0)
+                base_val = (s_res, p_map, ex_rate)
+                ttl_cache.set(base_cache_key, base_val, ttl=60.0)
+                return base_val
+
+            sheet_result, price_data_map, exchange_rate = await singleflight.execute(
+                f"resolve_base_{tab_id}", _resolve_base
+            )
+
+        if sheet_result.error:
+            return self._create_empty_response(tab_id, target_currency, sheet_result.error)
 
         res = self.value_sheet_result(
             sheet_result=sheet_result,

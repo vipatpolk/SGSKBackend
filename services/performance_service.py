@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from typing import cast
 
 from models.performance import (
     AssetClassPerformance,
@@ -7,6 +8,7 @@ from models.performance import (
 )
 from models.portfolio import PortfolioSummary
 from services.valuation_service import ValuationService
+from utils.cache import singleflight, ttl_cache
 from utils.format_utils import get_asset_type_label
 
 
@@ -49,29 +51,43 @@ class PerformanceService:
     ) -> PortfolioPerformanceResponse:
         resolved_start, resolved_end = self.resolve_date_range(timeframe, start_date, end_date)
         target_currency = currency.upper()
+        cache_key = f"perf_{timeframe}_{resolved_start}_{resolved_end}_{target_currency}"
+        cached = ttl_cache.get(cache_key)
+        if cached is not None:
+            return cast(PortfolioPerformanceResponse, cached)
 
-        holdings_res = await self.valuation_service.get_portfolio_holdings(tab_id="all", currency=target_currency)
-        if holdings_res.error:
-            return PortfolioPerformanceResponse(
+        async def _do_calc_perf() -> PortfolioPerformanceResponse:
+            c = ttl_cache.get(cache_key)
+            if c is not None:
+                return cast(PortfolioPerformanceResponse, c)
+
+            holdings_res = await self.valuation_service.get_portfolio_holdings(tab_id="all", currency=target_currency)
+            if holdings_res.error:
+                return PortfolioPerformanceResponse(
+                    timeframe=timeframe,
+                    startDate=resolved_start,
+                    endDate=resolved_end,
+                    currency=target_currency,
+                    exchangeRate=holdings_res.exchangeRate,
+                    summary=holdings_res.summary,
+                    assetTypePerformance=[],
+                    topGainers=[],
+                    topLosers=[],
+                    symbolPerformance=[],
+                    error=holdings_res.error,
+                )
+
+            res = self.calculate_performance(
+                holdings_res=holdings_res,
                 timeframe=timeframe,
-                startDate=resolved_start,
-                endDate=resolved_end,
-                currency=target_currency,
-                exchangeRate=holdings_res.exchangeRate,
-                summary=holdings_res.summary,
-                assetTypePerformance=[],
-                topGainers=[],
-                topLosers=[],
-                symbolPerformance=[],
-                error=holdings_res.error,
+                start_date=resolved_start,
+                end_date=resolved_end,
             )
+            if not res.error:
+                ttl_cache.set(cache_key, res, ttl=60.0)
+            return res
 
-        return self.calculate_performance(
-            holdings_res=holdings_res,
-            timeframe=timeframe,
-            start_date=resolved_start,
-            end_date=resolved_end,
-        )
+        return await singleflight.execute(cache_key, _do_calc_perf)
 
     def calculate_performance(
         self,
