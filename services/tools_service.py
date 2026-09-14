@@ -20,6 +20,7 @@ from models.tools import (
     TvmCalculateResponse,
     TvmScheduleEntryModel,
 )
+from services.allocation_service import DEFAULT_TARGETS
 from services.valuation_service import ValuationService
 
 logger = logging.getLogger(__name__)
@@ -505,7 +506,7 @@ class ToolsService:
             atype = pos.assetType or "us-stock"
             class_map.setdefault(atype, []).append(pos)
 
-        ordered_types = ["us-stock", "thai-stock", "crypto", "mutual-fund"]
+        ordered_types = list(DEFAULT_TARGETS.keys())
         all_types = [t for t in ordered_types if t in class_map] + [t for t in class_map if t not in ordered_types]
 
         total_portfolio_value = sum(pos.holdingValue for pos in open_positions)

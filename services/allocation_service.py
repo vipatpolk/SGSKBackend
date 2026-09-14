@@ -12,6 +12,7 @@ DEFAULT_TARGETS: dict[str, float] = {
     "thai-stock": 30.0,
     "crypto": 15.0,
     "mutual-fund": 15.0,
+    "bond": 0.0,
 }
 
 
@@ -49,12 +50,7 @@ class AllocationService:
         holdings_res,
         targets: dict[str, float],
     ) -> PortfolioAllocationResponse:
-        current_values: dict[str, float] = {
-            "us-stock": 0.0,
-            "thai-stock": 0.0,
-            "crypto": 0.0,
-            "mutual-fund": 0.0,
-        }
+        current_values: dict[str, float] = {k: 0.0 for k in DEFAULT_TARGETS}
 
         usd_val = 0.0
         thb_val = 0.0
@@ -73,7 +69,7 @@ class AllocationService:
         total_value = sum(current_values.values())
 
         # Recommendations
-        default_keys = ["us-stock", "thai-stock", "crypto", "mutual-fund"]
+        default_keys = list(DEFAULT_TARGETS.keys())
         all_keys = list(default_keys)
         for k in list(current_values.keys()) + list(targets.keys()):
             if k not in all_keys:

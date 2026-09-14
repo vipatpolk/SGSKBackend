@@ -4,13 +4,13 @@ This is the Python **FastAPI** backend for the [ShareLot](https://github.com/vip
 
 ## Features
 
-- **Google Sheets Integration**: Fetches published CSV sheets dynamically to retrieve user transaction logs based on tab IDs (`us-stock`, `thai-stock`, `crypto`, `mutual-fund`, `closed-position`).
+- **Google Sheets Integration**: Fetches published CSV sheets dynamically to retrieve user transaction logs based on tab IDs (`us-stock`, `thai-stock`, `crypto`, `mutual-fund`, `bond`, `closed-position`).
 - **FIFO Share Lot Engine**: Computes First-In, First-Out (FIFO) share lots, remaining open positions, cost basis, and realized P/L server-side, with support for mutual fund exchange dispositions (`EX-OUT` and `EX-IN`).
 - **Strict Asset Type Rules**: Identifies Thai Mutual Funds strictly by `.FUND` suffix (no symbol prefix heuristics).
-- **100% API-Driven Dividend Engine**: Calculates historical dividend cash flows and forward income projections purely from live API feeds (Yahoo Finance for US & Thai equities, SEC Thailand API for Mutual Funds) with exact share balance reconstruction on dividend ex-dates.
+- **100% API-Driven Dividend Engine**: Calculates historical dividend cash flows and forward income projections purely from live API feeds (Yahoo Finance for US & Thai equities and Bonds, SEC Thailand API for Mutual Funds) with exact share balance reconstruction on dividend ex-dates.
 - **Decoupled Architecture**: Encapsulates Google Spreadsheet IDs and GID mappings in `config/sheet_config.py`, allowing the frontend to query endpoints cleanly via tab IDs without exposing raw spreadsheet metadata.
 - **Market Data Proxy**: Fetches and aggregates real-time quotes, exchange rates, and metadata from:
-  - **Yahoo Finance** (U.S. Stocks, Thai Stocks via `.BK`, USD/THB FX rate)
+  - **Yahoo Finance** (U.S. Stocks, Thai Stocks via `.BK`, Bonds & Fixed Income ETFs, USD/THB FX rate)
   - **Binance TH** (Cryptocurrency orderbook prices)
   - **SEC Thailand** (Thai Mutual Fund daily NAV lookups)
 - **CORS Management**: Provides clean `/api/backend/*` endpoints for the frontend, avoiding browser CORS restrictions associated with calling third-party financial APIs directly.
@@ -20,11 +20,11 @@ This is the Python **FastAPI** backend for the [ShareLot](https://github.com/vip
 ### Portfolio & Holdings
 - `GET /portfolio/holdings` — Unified holdings valuation endpoint returning fully calculated open positions, closed positions, lot-level valuations, and portfolio KPI summary metrics in target currency (`THB` or `USD`).
 - `GET /portfolio/performance` — Comprehensive investment returns analytics with dynamic timeframe filtering (`YTD`, `1M`, `3M`, `6M`, `1Y`, `ALL`, or custom date bounds), asset class performance, and Top Gainers / Losers leaderboards.
-- `GET /portfolio/dividends` — 100% API-driven dividend analytics and income tracking endpoint returning ex-date share-weighted historical payouts, withholding taxes (15% US, 10% TH), monthly cashflow breakdowns, Yield on Cost (YOC), and forward projected annual income.
+- `GET /portfolio/dividend` — 100% API-driven dividend analytics and income tracking endpoint returning ex-date share-weighted historical payouts, withholding taxes (15% US, 10% TH), monthly cashflow breakdowns, Yield on Cost (YOC), and forward projected annual income.
 - `POST /portfolio/allocation` — Target asset allocation and rebalancing engine calculating actual vs target weights, actionable monetary buy/sell deltas, currency exposure (USD vs THB), and concentration weights.
 
 ### Share Lot & Transactions
-- `GET /share-lot/sheet/{tab_id}` — Fetches transaction logs and calculates FIFO share lots for a specific asset category (`us-stock`, `thai-stock`, `crypto`, `mutual-fund`, `closed-position`).
+- `GET /share-lot/sheet/{tab_id}` — Fetches transaction logs and calculates FIFO share lots for a specific asset category (`us-stock`, `thai-stock`, `crypto`, `mutual-fund`, `bond`, `closed-position`).
 - `GET /share-lot/sheets` — Fetches and aggregates transaction logs across all active tabs in the portfolio.
 
 ### Market Data & Prices

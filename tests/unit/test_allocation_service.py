@@ -101,6 +101,10 @@ def test_process_allocation(mock_holdings_for_allocation):
     assert thai_rec.rebalanceAmount == 500.0  # Buy 500
     assert thai_rec.action == "BUY"
 
+    bond_rec = next(r for r in res.recommendations if r.assetType == "bond")
+    assert bond_rec.currentValue == 0.0
+    assert bond_rec.action == "BALANCED"
+
     # Currency Exposure (AAPL is USD, PTT is THB)
     assert res.currencyExposure.usd == 1500.0
     assert res.currencyExposure.thb == 500.0

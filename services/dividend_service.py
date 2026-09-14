@@ -26,7 +26,12 @@ WHT_RATES: dict[str, float] = {
     "thai-stock": 0.10,
     "mutual-fund": 0.10,
     "us-stock": 0.15,
+    "bond": 0.15,
 }
+
+# Asset types eligible for dividend fetching from Yahoo Finance vs overall portfolio
+YAHOO_DIVIDEND_ASSET_TYPES: tuple[str, ...] = ("us-stock", "thai-stock", "bond")
+DIVIDEND_ASSET_TYPES: tuple[str, ...] = ("us-stock", "thai-stock", "mutual-fund", "bond")
 
 
 class DividendService:
@@ -91,7 +96,7 @@ class DividendService:
             closed_positions = [pos for pos in (holdings_res.closedPositions or []) if pos.assetType != "crypto"]
             all_positions = open_positions + closed_positions
 
-            stock_symbols = list(set([pos.symbol for pos in all_positions if pos.assetType in ("us-stock", "thai-stock")]))
+            stock_symbols = list(set([pos.symbol for pos in all_positions if pos.assetType in YAHOO_DIVIDEND_ASSET_TYPES]))
             fund_symbols = list(set([pos.symbol for pos in all_positions if pos.assetType == "mutual-fund"]))
 
             # 3. Fetch dividend histories from SEC Thailand and Yahoo Finance APIs concurrently
@@ -147,9 +152,8 @@ class DividendService:
         monthly_map: dict[str, dict[str, Any]] = {}
         annual_map: dict[int, dict[str, Any]] = {}
         asset_type_map: dict[str, dict[str, Any]] = {
-            "us-stock": {"gross": 0.0, "net": 0.0, "wht": 0.0, "symbols": set(), "records": 0},
-            "thai-stock": {"gross": 0.0, "net": 0.0, "wht": 0.0, "symbols": set(), "records": 0},
-            "mutual-fund": {"gross": 0.0, "net": 0.0, "wht": 0.0, "symbols": set(), "records": 0},
+            at: {"gross": 0.0, "net": 0.0, "wht": 0.0, "symbols": set(), "records": 0}
+            for at in DIVIDEND_ASSET_TYPES
         }
 
         # Process all positions purely from API dividend feeds with exact historical share balances
@@ -165,7 +169,7 @@ class DividendService:
 
             # Gather API distribution events
             events: list[tuple[str, float]] = []
-            if asset_type in ("us-stock", "thai-stock"):
+            if asset_type in YAHOO_DIVIDEND_ASSET_TYPES:
                 stock_res = stock_div_data.get(sym, {})
                 for evt in stock_res.get("dividends", []):
                     amt = float(evt.get("amount", 0.0))
@@ -342,7 +346,7 @@ class DividendService:
                     )
                     trailing_dps += d_val
                 recent_dists.sort(key=lambda x: x.dividendDate, reverse=True)
-            elif asset_type in ("us-stock", "thai-stock"):
+            elif asset_type in YAHOO_DIVIDEND_ASSET_TYPES:
                 stock_res = stock_div_data.get(sym, {})
                 trailing_dps = float(stock_res.get("trailing_12m_dps", 0.0))
 
@@ -399,7 +403,7 @@ class DividendService:
         total_wht = sum(r.convertedWithholdingTax for r in records)
 
         asset_type_summaries: list[AssetTypeDividendSummary] = []
-        for at_key in ("us-stock", "thai-stock", "mutual-fund"):
+        for at_key in DIVIDEND_ASSET_TYPES:
             at_data = asset_type_map[at_key]
             pct = (at_data["net"] / total_net_dividends * 100.0) if total_net_dividends > 0 else 0.0
             asset_type_summaries.append(

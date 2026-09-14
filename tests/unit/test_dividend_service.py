@@ -201,6 +201,7 @@ async def test_dividend_service_calculation(mock_valuation_service, mock_price_s
     asset_types = {at.assetType for at in res.assetTypeSummaries}
     assert "thai-stock" in asset_types
     assert "us-stock" in asset_types
+    assert "bond" in asset_types
     assert "crypto" not in asset_types
 
     # Check Yield on Cost (YOC) calculation

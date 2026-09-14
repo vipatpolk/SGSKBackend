@@ -13,6 +13,8 @@ def normalize_asset_type(raw_type: str) -> str | None:
         return "crypto"
     if "mutual-fund" == normalized or "fund" in normalized or "mutual" in normalized:
         return "mutual-fund"
+    if "bond" == normalized or "bond" in normalized:
+        return "bond"
     return None
 
 
@@ -89,6 +91,7 @@ ASSET_TYPE_LABELS: dict[str, str] = {
     "thai-stock": "Thai Stock",
     "crypto": "Cryptocurrency",
     "mutual-fund": "Mutual Fund",
+    "bond": "Bond",
 }
 
 

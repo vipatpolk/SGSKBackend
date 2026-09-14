@@ -35,6 +35,7 @@ class TargetAllocationRequest(BaseModel):
         "thai-stock": 30.0,
         "crypto": 15.0,
         "mutual-fund": 15.0,
+        "bond": 0.0,
     }
 
 

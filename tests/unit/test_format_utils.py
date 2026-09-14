@@ -15,6 +15,8 @@ def test_normalize_asset_type():
     assert normalize_asset_type("TH") == "thai-stock"
     assert normalize_asset_type("crypto currency") == "crypto"
     assert normalize_asset_type("mutual fund") == "mutual-fund"
+    assert normalize_asset_type("bond") == "bond"
+    assert normalize_asset_type("bonds") == "bond"
     assert normalize_asset_type("Unknown Type") is None
     assert normalize_asset_type("") is None
 
@@ -22,6 +24,7 @@ def test_normalize_asset_type():
 @pytest.mark.unit
 def test_get_asset_type():
     assert get_asset_type("thai-stock", "AAPL") == "thai-stock"
+    assert get_asset_type("bond", "BND") == "bond"
     assert get_asset_type("us-stock", "PTT.BK") == "us-stock"
     assert get_asset_type("closed-position", "PTT.BK") == "thai-stock"
     assert get_asset_type("all", "K-CHANGE.FUND") == "mutual-fund"
