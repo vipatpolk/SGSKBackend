@@ -45,6 +45,49 @@ class NavService:
 
         return price_map
 
+    async def fetch_pvd_policies(self, proj_id: str | None = None) -> dict[str, dict[str, Any]]:
+        settings = get_settings()
+        target_proj_id = proj_id or settings.sec_pvd_proj_id
+        cache_key = f"sec_pvd_policies_{target_proj_id}"
+        cached = ttl_cache.get(cache_key)
+        if cached is not None:
+            return cast(dict[str, dict[str, Any]], cached)
+
+        async def _do_fetch() -> dict[str, dict[str, Any]]:
+            c = ttl_cache.get(cache_key)
+            if c is not None:
+                return cast(dict[str, dict[str, Any]], c)
+
+            url = f"{settings.sec_pvd_base_url}/factsheet/{target_proj_id}/policy"
+            try:
+                async with get_sec_semaphore():
+                    res = await self.client.get(url, headers=self.headers)
+                res.raise_for_status()
+                raw_list = res.json()
+                if not isinstance(raw_list, list):
+                    return {}
+
+                policy_map: dict[str, dict[str, Any]] = {}
+                for item in raw_list:
+                    sub_id = item.get("sub_policy_id")
+                    if sub_id:
+                        key = str(sub_id).strip().upper()
+                        policy_map[key] = {
+                            "subPolicyId": sub_id,
+                            "name": item.get("sub_policy_name") or "",
+                            "policyName": item.get("policy_name") or "",
+                            "aimcType": item.get("aimc_type") or "",
+                            "riskLevel": item.get("risk_level") or "",
+                            "objective": item.get("objective") or "",
+                        }
+
+                ttl_cache.set(cache_key, policy_map, ttl=86400.0)
+                return policy_map
+            except Exception:
+                return {}
+
+        return await singleflight.execute(f"fetch_pvd_policies_{target_proj_id}", _do_fetch)
+
     async def fetch_single_fund_nav(self, symbol: str) -> dict[str, Any]:
         cache_key = f"sec_nav_single_{symbol}"
         cached = ttl_cache.get(cache_key)

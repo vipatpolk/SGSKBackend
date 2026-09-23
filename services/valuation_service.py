@@ -9,7 +9,8 @@ from models.portfolio import (
     PortfolioPosition,
     PortfolioSummary,
 )
-from models.transaction import ClosedShareLot, SheetResult
+from models.transaction import ClosedShareLot, PriceData, SheetResult
+from services.nav_service import NavService
 from services.price_service import PriceService
 from services.share_lot_service import ShareLotService
 from utils.cache import singleflight, ttl_cache
@@ -20,16 +21,28 @@ from utils.format_utils import (
     get_asset_type_label,
 )
 
+DEFAULT_PVD_NAMES: dict[str, str] = {
+    "PVDSP500": "นโยบายกองทุนรวมต่างประเทศ หุ้นยูเอส",
+    "PVDWEQ": "นโยบายกองทุนรวมต่างประเทศ World Equity",
+    "PVDMPAEM": "นโยบายกองทุนรวมตราสารทุน เอเชียน อีเมอร์จิ้ง",
+    "PVDMPINC": "นโยบายกองทุนรวมตราสารหนี้ต่างประเทศ อินคัม",
+    "PVDMGLDH": "นโยบายกองทุนรวมโกลด์ THB เฮดจ์",
+}
+
 
 class ValuationService:
     def __init__(
         self,
         share_lot_service: ShareLotService | None = None,
         price_service: PriceService | None = None,
+        nav_service: NavService | None = None,
         client: httpx.AsyncClient | None = None,
     ):
         self.share_lot_service = share_lot_service or ShareLotService(client=client)
         self.price_service = price_service or PriceService(client=client)
+        self.nav_service = nav_service or (
+            self.price_service.nav_service if self.price_service else NavService(client=client)
+        )
 
     async def get_portfolio_holdings(
         self,
@@ -91,6 +104,22 @@ class ValuationService:
                 else:
                     ex_rate = await self.price_service.fetch_exchange_rate("USD", "THB") or 1.0
 
+                has_pvd = any(
+                    c.get("assetType") == "provident-fund" or c.get("symbol", "").upper().startswith("PVD")
+                    for c in candidates
+                )
+                if has_pvd:
+                    try:
+                        pvd_policies = await self.nav_service.fetch_pvd_policies()
+                        for sym_key, policy_info in pvd_policies.items():
+                            sec_name = policy_info.get("name") or DEFAULT_PVD_NAMES.get(sym_key, "")
+                            if sym_key not in p_map:
+                                p_map[sym_key] = PriceData(symbol=sym_key, name=sec_name, price=0.0, currency="THB")
+                            elif not p_map[sym_key].name:
+                                p_map[sym_key].name = sec_name
+                    except Exception:
+                        pass
+
                 base_val = (s_res, p_map, ex_rate)
                 ttl_cache.set(base_cache_key, base_val, ttl=60.0)
                 return base_val
@@ -134,10 +163,26 @@ class ValuationService:
             sym = open_summary.symbol
             orig_curr = open_summary.currency
             pd = price_data_map.get(sym)
+            is_pvd = open_summary.assetType == "provident-fund" or sym.upper().startswith("PVD")
 
             has_price = bool(pd is not None and getattr(pd, "price", 0.0) > 0)
-            raw_price = pd.price if (has_price and pd is not None) else open_summary.averageCost
-            price_curr = pd.currency if (has_price and pd is not None and pd.currency) else orig_curr
+            pvd_total_val = 0.0
+            if is_pvd:
+                has_price = True
+                price_curr = orig_curr
+                emp_val = (open_summary.employeeContribution or 0.0) + (open_summary.employeeEarnings or 0.0)
+                empr_val = (open_summary.employerMatching or 0.0) + (open_summary.employerEarnings or 0.0)
+                pvd_total_val = emp_val + empr_val
+                if pvd_total_val <= 0:
+                    pvd_total_val = open_summary.totalCost
+                raw_price = (
+                    (pvd_total_val / open_summary.totalShares)
+                    if open_summary.totalShares > 0
+                    else open_summary.averageCost
+                )
+            else:
+                raw_price = pd.price if (has_price and pd is not None) else open_summary.averageCost
+                price_curr = pd.currency if (has_price and pd is not None and pd.currency) else orig_curr
 
             # Price converted to target currency
             current_price_converted = convert_currency(raw_price, price_curr, target_currency, exchange_rate)
@@ -148,9 +193,18 @@ class ValuationService:
             )
 
             # Holding value
-            holding_value_converted = open_summary.totalShares * current_price_converted
-            unrealized_pl = holding_value_converted - total_cost_converted
-            unrealized_pl_pct = (unrealized_pl / total_cost_converted * 100.0) if total_cost_converted > 0 else 0.0
+            if is_pvd:
+                holding_value_converted = convert_currency(pvd_total_val, orig_curr, target_currency, exchange_rate)
+                unrealized_pl = holding_value_converted - total_cost_converted
+                unrealized_pl_pct = (
+                    (unrealized_pl / total_cost_converted * 100.0) if total_cost_converted > 0 else 0.0
+                )
+            else:
+                holding_value_converted = open_summary.totalShares * current_price_converted
+                unrealized_pl = holding_value_converted - total_cost_converted
+                unrealized_pl_pct = (
+                    (unrealized_pl / total_cost_converted * 100.0) if total_cost_converted > 0 else 0.0
+                )
 
             open_invested_total += total_cost_converted
             open_value_total += holding_value_converted
@@ -180,10 +234,34 @@ class ValuationService:
                         currency=target_currency,
                         originalCostBasis=lot.costBasis,
                         originalCurrency=orig_curr,
+                        note=lot.note,
                     )
                 )
 
             name = pd.name if (pd is not None and pd.name) else ""
+            if not name and is_pvd:
+                name = DEFAULT_PVD_NAMES.get(sym.upper(), "")
+
+            emp_contrib_c = (
+                convert_currency(open_summary.employeeContribution, orig_curr, target_currency, exchange_rate)
+                if open_summary.employeeContribution is not None
+                else None
+            )
+            emp_earnings_c = (
+                convert_currency(open_summary.employeeEarnings, orig_curr, target_currency, exchange_rate)
+                if open_summary.employeeEarnings is not None
+                else None
+            )
+            empr_matching_c = (
+                convert_currency(open_summary.employerMatching, orig_curr, target_currency, exchange_rate)
+                if open_summary.employerMatching is not None
+                else None
+            )
+            empr_earnings_c = (
+                convert_currency(open_summary.employerEarnings, orig_curr, target_currency, exchange_rate)
+                if open_summary.employerEarnings is not None
+                else None
+            )
 
             open_positions.append(
                 PortfolioPosition(
@@ -203,6 +281,12 @@ class ValuationService:
                     originalCurrency=orig_curr,
                     hasPrice=has_price,
                     lots=valued_lots,
+                    employeeShares=open_summary.employeeShares,
+                    employerShares=open_summary.employerShares,
+                    employeeContribution=emp_contrib_c,
+                    employeeEarnings=emp_earnings_c,
+                    employerMatching=empr_matching_c,
+                    employerEarnings=empr_earnings_c,
                 )
             )
 

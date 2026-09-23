@@ -81,6 +81,10 @@ class PriceService:
         sym = s.get("symbol", "").upper()
         return s.get("assetType") == "mutual-fund" or sym.endswith(".FUND") or sym.endswith(".BKFUND")
 
+    @staticmethod
+    def _is_pvd(s: dict[str, str]) -> bool:
+        return s.get("assetType") == "provident-fund" or s.get("symbol", "").upper().startswith("PVD")
+
     def _extract_yahoo_price(self, meta: dict[str, Any]) -> float:
         return meta.get("regularMarketPrice") or meta.get("chartPreviousClose") or meta.get("previousClose") or 0.0
 
@@ -88,7 +92,15 @@ class PriceService:
         if not summaries:
             return {}
 
-        stock_symbols = list(set([s["symbol"] for s in summaries if not self._is_fund(s) and not self._is_crypto(s)]))
+        stock_symbols = list(
+            set(
+                [
+                    s["symbol"]
+                    for s in summaries
+                    if not self._is_fund(s) and not self._is_crypto(s) and not self._is_pvd(s)
+                ]
+            )
+        )
         crypto_symbols = list(set([s["symbol"] for s in summaries if self._is_crypto(s)]))
         fund_symbols = list(set([s["symbol"] for s in summaries if self._is_fund(s)]))
 

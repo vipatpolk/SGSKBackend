@@ -5,6 +5,8 @@ def normalize_asset_type(raw_type: str) -> str | None:
     if not raw_type:
         return None
     normalized = raw_type.strip().lower()
+    if "provident-fund" == normalized or "pvd" in normalized or "provident" in normalized:
+        return "provident-fund"
     if "thai-stock" == normalized or "thai" in normalized or normalized == "th":
         return "thai-stock"
     if "us-stock" == normalized or "u.s" in normalized or "us stock" in normalized or "united states" in normalized:
@@ -28,6 +30,8 @@ def get_asset_type(asset_type: str | None = None, symbol: str | None = None) -> 
 
     if symbol:
         sym = symbol.upper()
+        if sym.startswith("PVD") or sym.endswith(".PVD"):
+            return "provident-fund"
         if sym.endswith(".FUND") or sym.endswith(".BKFUND"):
             return "mutual-fund"
         if sym.endswith(".BK"):
@@ -92,6 +96,7 @@ ASSET_TYPE_LABELS: dict[str, str] = {
     "crypto": "Cryptocurrency",
     "mutual-fund": "Mutual Fund",
     "bond": "Bond",
+    "provident-fund": "Provident Fund",
 }
 
 

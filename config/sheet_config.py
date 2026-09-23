@@ -10,6 +10,7 @@ SHEET_CONFIG: dict[str, Any] = {
         "crypto": "1822302220",
         "mutual-fund": "359978839",
         "bond": "1657887056",
+        "provident-fund": "0",
         "closed-position": "273600915",
     },
 }
@@ -22,6 +23,12 @@ ASSET_TABS = [
     {"id": "mutual-fund", "label": "Mutual Fund", "sheetGid": SHEET_CONFIG["gids"]["mutual-fund"], "currency": "THB"},
     {"id": "bond", "label": "Bond", "sheetGid": SHEET_CONFIG["gids"]["bond"], "currency": "USD"},
     {
+        "id": "provident-fund",
+        "label": "Provident Fund",
+        "sheetGid": SHEET_CONFIG["gids"]["provident-fund"],
+        "currency": "THB",
+    },
+    {
         "id": "closed-position",
         "label": "Closed Position",
         "sheetGid": SHEET_CONFIG["gids"]["closed-position"],
@@ -30,6 +37,13 @@ ASSET_TABS = [
 ]
 
 
-def get_sheet_export_url(gid: str) -> str:
+def get_sheet_export_url(gid: str, tab_id: str | None = None, spreadsheet_id: str | None = None) -> str:
     settings = get_settings()
-    return f"{SHEET_CONFIG['baseUrl']}/{settings.google_spreadsheet_id}/export?format=csv&gid={gid}"
+    sheet_id = spreadsheet_id
+    if not sheet_id:
+        if tab_id == "provident-fund":
+            sheet_id = settings.google_pvd_spreadsheet_id
+        else:
+            sheet_id = settings.google_spreadsheet_id
+    return f"{SHEET_CONFIG['baseUrl']}/{sheet_id}/export?format=csv&gid={gid}"
+

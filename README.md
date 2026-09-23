@@ -4,15 +4,16 @@ This is the Python **FastAPI** backend for the [ShareLot](https://github.com/vip
 
 ## Features
 
-- **Google Sheets Integration**: Fetches published CSV sheets dynamically to retrieve user transaction logs based on tab IDs (`us-stock`, `thai-stock`, `crypto`, `mutual-fund`, `bond`, `closed-position`).
+- **Google Sheets Integration**: Fetches published CSV sheets dynamically to retrieve user transaction logs based on tab IDs (`us-stock`, `thai-stock`, `crypto`, `mutual-fund`, `bond`, `provident-fund`, `closed-position`). Supports dedicated secondary spreadsheets for Provident Funds.
 - **FIFO Share Lot Engine**: Computes First-In, First-Out (FIFO) share lots, remaining open positions, cost basis, and realized P/L server-side, with support for mutual fund exchange dispositions (`EX-OUT` and `EX-IN`).
-- **Strict Asset Type Rules**: Identifies Thai Mutual Funds strictly by `.FUND` suffix (no symbol prefix heuristics).
+- **Provident Fund (PVD) Processing**: Automatically parses employee contributions, employee earnings, employer matching, employer earnings, and unit allocations to calculate cost basis, implied NAV, and unrealized returns.
+- **Strict Asset Type Rules**: Identifies Thai Mutual Funds strictly by `.FUND` suffix and Provident Funds by `PVD` prefix / `.PVD` suffix.
 - **100% API-Driven Dividend Engine**: Calculates historical dividend cash flows and forward income projections purely from live API feeds (Yahoo Finance for US & Thai equities and Bonds, SEC Thailand API for Mutual Funds) with exact share balance reconstruction on dividend ex-dates.
 - **Decoupled Architecture**: Encapsulates Google Spreadsheet IDs and GID mappings in `config/sheet_config.py`, allowing the frontend to query endpoints cleanly via tab IDs without exposing raw spreadsheet metadata.
 - **Market Data Proxy**: Fetches and aggregates real-time quotes, exchange rates, and metadata from:
   - **Yahoo Finance** (U.S. Stocks, Thai Stocks via `.BK`, Bonds & Fixed Income ETFs, USD/THB FX rate)
   - **Binance TH** (Cryptocurrency orderbook prices)
-  - **SEC Thailand** (Thai Mutual Fund daily NAV lookups)
+  - **SEC Thailand** (Thai Mutual Fund daily NAV lookups & Provident Fund policy factsheet metadata)
 - **CORS Management**: Provides clean `/api/backend/*` endpoints for the frontend, avoiding browser CORS restrictions associated with calling third-party financial APIs directly.
 
 ## API Endpoints
@@ -24,7 +25,7 @@ This is the Python **FastAPI** backend for the [ShareLot](https://github.com/vip
 - `POST /portfolio/allocation` — Target asset allocation and rebalancing engine calculating actual vs target weights, actionable monetary buy/sell deltas, currency exposure (USD vs THB), and concentration weights.
 
 ### Share Lot & Transactions
-- `GET /share-lot/sheet/{tab_id}` — Fetches transaction logs and calculates FIFO share lots for a specific asset category (`us-stock`, `thai-stock`, `crypto`, `mutual-fund`, `bond`, `closed-position`).
+- `GET /share-lot/sheet/{tab_id}` — Fetches transaction logs and calculates FIFO share lots for a specific asset category (`us-stock`, `thai-stock`, `crypto`, `mutual-fund`, `bond`, `provident-fund`, `closed-position`).
 - `GET /share-lot/sheets` — Fetches and aggregates transaction logs across all active tabs in the portfolio.
 
 ### Market Data & Prices
@@ -99,7 +100,7 @@ FastAPI automatically generates interactive API documentation. Once the server i
 
 ### Running Unit & Deterministic E2E Tests
 
-Run the test suite with coverage enforcement ($\ge 80\%$ threshold):
+Run the test suite with coverage enforcement ($\ge 80\%$ threshold, 91 tests):
 
 ```bash
 pytest -m "not live_e2e" --cov=. --cov-report=term-missing

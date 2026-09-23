@@ -1,6 +1,7 @@
 import asyncio
 import csv
 import io
+from datetime import datetime
 from typing import cast
 
 import httpx
@@ -42,10 +43,10 @@ class ShareLotService:
                 return cast(SheetResult, c)
 
             tab = next((t for t in ASSET_TABS if t["id"] == tab_id), None)
-            if not tab or not tab["sheetGid"]:
+            if not tab or tab.get("sheetGid") is None or tab.get("sheetGid") == "":
                 return self.create_empty_result(f"Invalid tab id: {tab_id}", False)
 
-            url = get_sheet_export_url(tab["sheetGid"])
+            url = get_sheet_export_url(tab["sheetGid"], tab_id=tab["id"])
             is_closed = tab["id"] == "closed-position"
             asset_type = tab["id"]
             headers = get_google_auth_headers()
@@ -78,13 +79,15 @@ class ShareLotService:
             if c is not None:
                 return cast(SheetResult, c)
 
-            sheet_tabs = [t for t in ASSET_TABS if t["sheetGid"]]
+            sheet_tabs = [t for t in ASSET_TABS if t.get("sheetGid") is not None and t.get("sheetGid") != ""]
 
             async def fetch_and_parse(tab):
                 try:
                     headers = get_google_auth_headers()
                     async with get_sheets_semaphore():
-                        res = await self.client.get(get_sheet_export_url(tab["sheetGid"]), headers=headers)
+                        res = await self.client.get(
+                            get_sheet_export_url(tab["sheetGid"], tab_id=tab["id"]), headers=headers
+                        )
                     res.raise_for_status()
                     return self.parse_csv(res.text, tab["id"])
                 except Exception:
@@ -183,6 +186,13 @@ class ShareLotService:
             return []
 
         header = [h.strip().lower() for h in rows[0]]
+        is_pvd = (
+            tab_asset_type == "provident-fund"
+            or any("employee" in h for h in header)
+            or any("employer" in h for h in header)
+        )
+        if is_pvd:
+            return self.parse_pvd_csv(csv_text)
 
         def find_idx(*names):
             for i, h in enumerate(header):
@@ -312,6 +322,133 @@ class ShareLotService:
 
         return transactions
 
+    def parse_pvd_csv(self, csv_text: str) -> list[Transaction]:
+        reader = csv.reader(io.StringIO(csv_text))
+        rows = list(reader)
+        if len(rows) < 2:
+            return []
+
+        header = [h.strip().lower() for h in rows[0]]
+
+        def find_idx(*names):
+            for i, h in enumerate(header):
+                if any(n == h or n in h for n in names):
+                    return i
+            return -1
+
+        sym_idx = max(0, find_idx("ticker", "symbol"))
+        emp_unit_idx = find_idx("employee's unit", "employee unit", "emp unit")
+        empr_unit_idx = find_idx("employer's unit", "employer unit", "co unit")
+        emp_contrib_idx = find_idx(
+            "employee's contribution", "employee contribution", "emp contrib", "emp contribution"
+        )
+        emp_earnings_idx = find_idx(
+            "employee's earnings", "employee earnings", "emp earnings", "emp gain"
+        )
+        empr_matching_idx = find_idx(
+            "employer's matching",
+            "employer matching",
+            "employer's contribution",
+            "employer contribution",
+            "co matching",
+            "co contribution",
+        )
+        empr_earnings_idx = find_idx(
+            "employer's earnings", "employer earnings", "co earnings", "co gain"
+        )
+        val_idx = find_idx("total value", "value", "amount")
+        curr_idx = find_idx("currency", "curr")
+
+        has_units = emp_unit_idx != -1 and empr_unit_idx != -1
+        has_values = val_idx != -1 or (emp_contrib_idx != -1 and empr_matching_idx != -1)
+        if not has_units or not has_values:
+            return []
+
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        transactions: list[Transaction] = []
+
+        for row in rows[1:]:
+            if len(row) <= sym_idx:
+                continue
+            symbol = row[sym_idx].strip()
+            if not symbol:
+                continue
+
+            def parse_float_col(idx: int) -> float:
+                if idx != -1 and len(row) > idx:
+                    val_str = row[idx].strip().replace(",", "")
+                    if val_str:
+                        try:
+                            return float(val_str)
+                        except (ValueError, TypeError):
+                            return 0.0
+                return 0.0
+
+            emp_units = parse_float_col(emp_unit_idx)
+            empr_units = parse_float_col(empr_unit_idx)
+            emp_contrib = parse_float_col(emp_contrib_idx)
+            emp_earnings = parse_float_col(emp_earnings_idx)
+            empr_matching = parse_float_col(empr_matching_idx)
+            empr_earnings = parse_float_col(empr_earnings_idx)
+            total_val = parse_float_col(val_idx)
+
+            if total_val == 0.0:
+                total_val = emp_contrib + emp_earnings + empr_matching + empr_earnings
+
+            total_units = emp_units + empr_units
+            nav_price = (total_val / total_units) if total_units > 0 else 0.0
+
+            currency = (
+                row[curr_idx].strip()
+                if curr_idx != -1 and len(row) > curr_idx and row[curr_idx].strip()
+                else "THB"
+            )
+
+            # Cost basis per unit
+            emp_cost_basis = (
+                (emp_contrib / emp_units)
+                if (emp_units > 0 and emp_contrib > 0)
+                else nav_price
+            )
+            empr_cost_basis = (
+                (empr_matching / empr_units)
+                if (empr_units > 0 and empr_matching > 0)
+                else nav_price
+            )
+
+            if emp_units > 0:
+                transactions.append(
+                    Transaction(
+                        symbol=symbol,
+                        date=today_str,
+                        quantity=emp_units,
+                        price=emp_cost_basis,
+                        currency=currency,
+                        assetType="provident-fund",
+                        txType="BUY",
+                        note="Employee Contribution",
+                        employeeContribution=emp_contrib if emp_contrib > 0 else None,
+                        employeeEarnings=emp_earnings if emp_earnings != 0 else None,
+                    )
+                )
+            if empr_units > 0:
+                transactions.append(
+                    Transaction(
+                        symbol=symbol,
+                        date=today_str,
+                        quantity=empr_units,
+                        price=empr_cost_basis,
+                        currency=currency,
+                        assetType="provident-fund",
+                        txType="BUY",
+                        note="Employer Matching",
+                        employerMatching=empr_matching if empr_matching > 0 else None,
+                        employerEarnings=empr_earnings if empr_earnings != 0 else None,
+                    )
+                )
+
+        return transactions
+
     def process_transactions(
         self, transactions: list[Transaction]
     ) -> tuple[list[SymbolSummary], list[ClosedSymbolSummary], list[SymbolTransactionSummary]]:
@@ -396,6 +533,7 @@ class ShareLotService:
                             costBasis=price,
                             totalCost=total_amount,
                             assetType=tx.assetType,
+                            note=tx.note,
                         )
                     )
 
@@ -505,6 +643,17 @@ class ShareLotService:
                 total_shares = sum(lot.quantity for lot in remaining_lots)
                 total_cost = sum(lot.totalCost for lot in remaining_lots)
                 avg_cost = total_cost / total_shares if total_shares > 0 else 0
+                emp_shares = sum(lot.quantity for lot in remaining_lots if lot.note == "Employee Contribution")
+                empr_shares = sum(lot.quantity for lot in remaining_lots if lot.note == "Employer Matching")
+                emp_contrib_vals = [tx.employeeContribution for tx in txs if tx.employeeContribution is not None]
+                emp_contrib = sum(emp_contrib_vals) if emp_contrib_vals else None
+                emp_earnings_vals = [tx.employeeEarnings for tx in txs if tx.employeeEarnings is not None]
+                emp_earnings = sum(emp_earnings_vals) if emp_earnings_vals else None
+                empr_matching_vals = [tx.employerMatching for tx in txs if tx.employerMatching is not None]
+                empr_matching = sum(empr_matching_vals) if empr_matching_vals else None
+                empr_earnings_vals = [tx.employerEarnings for tx in txs if tx.employerEarnings is not None]
+                empr_earnings = sum(empr_earnings_vals) if empr_earnings_vals else None
+
                 summaries.append(
                     SymbolSummary(
                         symbol=symbol,
@@ -514,6 +663,12 @@ class ShareLotService:
                         currency=currency,
                         lots=remaining_lots,
                         assetType=asset_type,
+                        employeeShares=emp_shares if emp_shares > 0 else None,
+                        employerShares=empr_shares if empr_shares > 0 else None,
+                        employeeContribution=emp_contrib,
+                        employeeEarnings=emp_earnings,
+                        employerMatching=empr_matching,
+                        employerEarnings=empr_earnings,
                     )
                 )
             elif closed_lots:

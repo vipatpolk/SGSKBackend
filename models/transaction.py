@@ -11,6 +11,11 @@ class Transaction(BaseModel):
     exchangeFrom: str | None = None
     exchangeTo: str | None = None
     txType: str | None = None
+    note: str | None = None
+    employeeContribution: float | None = None
+    employeeEarnings: float | None = None
+    employerMatching: float | None = None
+    employerEarnings: float | None = None
 
 
 class ShareLot(BaseModel):
@@ -20,6 +25,7 @@ class ShareLot(BaseModel):
     costBasis: float
     totalCost: float
     assetType: str
+    note: str | None = None
 
 
 class ClosedShareLot(BaseModel):
@@ -45,6 +51,12 @@ class SymbolSummary(BaseModel):
     currency: str
     lots: list[ShareLot]
     assetType: str
+    employeeShares: float | None = None
+    employerShares: float | None = None
+    employeeContribution: float | None = None
+    employeeEarnings: float | None = None
+    employerMatching: float | None = None
+    employerEarnings: float | None = None
 
 
 class ClosedSymbolSummary(BaseModel):

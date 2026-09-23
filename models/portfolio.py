@@ -16,6 +16,7 @@ class PortfolioHoldingLot(BaseModel):
     currency: str
     originalCostBasis: float
     originalCurrency: str
+    note: str | None = None
 
 
 class PortfolioPosition(BaseModel):
@@ -35,6 +36,15 @@ class PortfolioPosition(BaseModel):
     originalCurrency: str
     hasPrice: bool
     lots: list[PortfolioHoldingLot] = []
+    employeeShares: float | None = None
+    employerShares: float | None = None
+    employeeContribution: float | None = None
+    employeeEarnings: float | None = None
+    employerMatching: float | None = None
+    employerEarnings: float | None = None
+    policyName: str | None = None
+    aimcType: str | None = None
+    riskLevel: str | None = None
 
 
 class ClosedPortfolioPosition(BaseModel):

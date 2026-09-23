@@ -128,3 +128,76 @@ K-CASH,2026-03-01,-1000,1.55,THB,,K-USA
     assert k_cash_summary.exchangeCount == 1
     assert k_cash_summary.transactions[0].type == "EXCHANGE_OUT"
     assert k_cash_summary.transactions[0].exchangeTo == "K-USA"
+
+
+@pytest.mark.unit
+def test_parse_provident_fund_csv(service):
+    """Verify parsing Provident Fund CSV snapshot into Employee and Employer contribution lots."""
+    pvd_csv = """Ticker,Employee's Unit,Employer's Unit,Total Value,Currency
+PVDSP500,"8,294.68","6,005.29","205,135.89",THB
+PVDWEQ,"18,919.08","13,853.91","410,227.49",THB
+"""
+    transactions = service.parse_csv(pvd_csv, "provident-fund")
+    assert len(transactions) == 4
+
+    sp500_txs = [t for t in transactions if t.symbol == "PVDSP500"]
+    assert len(sp500_txs) == 2
+    emp_tx = next(t for t in sp500_txs if t.note == "Employee Contribution")
+    empr_tx = next(t for t in sp500_txs if t.note == "Employer Matching")
+
+    assert emp_tx.quantity == 8294.68
+    assert empr_tx.quantity == 6005.29
+    assert emp_tx.currency == "THB"
+    assert emp_tx.assetType == "provident-fund"
+
+    # Total units = 14,299.97, nav = 205,135.89 / 14,299.97 = 14.345197...
+    expected_nav = 205135.89 / (8294.68 + 6005.29)
+    assert abs(emp_tx.price - expected_nav) < 1e-4
+
+    # Verify process_transactions creates SymbolSummary with employeeShares and employerShares
+    summaries, _, _ = service.process_transactions(transactions)
+    sp500_summary = next(s for s in summaries if s.symbol == "PVDSP500")
+    assert abs(sp500_summary.totalShares - (8294.68 + 6005.29)) < 1e-4
+    assert sp500_summary.employeeShares == 8294.68
+    assert sp500_summary.employerShares == 6005.29
+    assert abs(sp500_summary.totalCost - 205135.89) < 0.1
+    assert len(sp500_summary.lots) == 2
+    assert sp500_summary.lots[0].note == "Employee Contribution"
+    assert sp500_summary.lots[1].note == "Employer Matching"
+
+
+@pytest.mark.unit
+def test_parse_provident_fund_csv_new_structure(service):
+    """Verify parsing Provident Fund CSV with Employee Contribution, Employee Earnings, Employer Matching, Employer Earnings."""
+    pvd_csv = """Ticker,Employee's Unit,Employer's Unit,Employee's Contribution,Employee's Earnings,Employer's Matching,Employer's Earnings,Currency
+PVDSP500,"8,294.68","6,005.29","100,858.26","18,130.55","73,962.72","12,184.36",THB
+"""
+    transactions = service.parse_csv(pvd_csv, "provident-fund")
+    assert len(transactions) == 2
+
+    emp_tx = next(t for t in transactions if t.note == "Employee Contribution")
+    empr_tx = next(t for t in transactions if t.note == "Employer Matching")
+
+    assert emp_tx.quantity == 8294.68
+    assert empr_tx.quantity == 6005.29
+    assert emp_tx.employeeContribution == 100858.26
+    assert emp_tx.employeeEarnings == 18130.55
+    assert empr_tx.employerMatching == 73962.72
+    assert empr_tx.employerEarnings == 12184.36
+
+    # Unit cost bases: 100858.26 / 8294.68 = 12.1594
+    assert abs(emp_tx.price - (100858.26 / 8294.68)) < 1e-4
+    assert abs(empr_tx.price - (73962.72 / 6005.29)) < 1e-4
+
+    summaries, _, _ = service.process_transactions(transactions)
+    assert len(summaries) == 1
+    s = summaries[0]
+    assert s.symbol == "PVDSP500"
+    assert s.employeeShares == 8294.68
+    assert s.employerShares == 6005.29
+    assert s.employeeContribution == 100858.26
+    assert s.employeeEarnings == 18130.55
+    assert s.employerMatching == 73962.72
+    assert s.employerEarnings == 12184.36
+    assert abs(s.totalCost - (100858.26 + 73962.72)) < 1e-2
+

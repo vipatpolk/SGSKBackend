@@ -54,3 +54,38 @@ async def test_fetch_single_fund_nav_success(service, monkeypatch):
     res_bk = await service.fetch_single_fund_nav("K-CHANGE.BKFUND")
     assert res_bk["originalSymbol"] == "K-CHANGE.BKFUND"
     assert res_bk["data"].price == 15.75
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_fetch_pvd_policies_success(service, monkeypatch):
+    class MockResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return [
+                {
+                    "sub_policy_id": "PVDSP500",
+                    "sub_policy_name": "นโยบายกองทุนรวมต่างประเทศ หุ้นยูเอส",
+                    "policy_name": "ตราสารทุน",
+                    "aimc_type": "EQUS",
+                    "risk_level": "RS6",
+                    "objective": "ลงทุนในกองทุนเปิดไทยพาณิชย์หุ้นยูเอส",
+                }
+            ]
+
+    async def mock_get(url, *args, **kwargs):
+        return MockResponse()
+
+    monkeypatch.setattr(service.client, "get", mock_get)
+
+    res = await service.fetch_pvd_policies("V0001_2553")
+    assert "PVDSP500" in res
+    assert res["PVDSP500"]["name"] == "นโยบายกองทุนรวมต่างประเทศ หุ้นยูเอส"
+    assert res["PVDSP500"]["policyName"] == "ตราสารทุน"
+    assert res["PVDSP500"]["aimcType"] == "EQUS"
+    assert res["PVDSP500"]["riskLevel"] == "RS6"
+

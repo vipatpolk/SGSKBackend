@@ -103,3 +103,29 @@ def test_exchange_out_realized_pl_calculation(service):
     assert ex_out_tx.realizedPL == 200.0
     assert ex_out_tx.realizedPLPercent == 20.0
     assert ex_out_tx.exchangeTo == "T-ES-US-A.BKFUND"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_fetch_provident_fund_sheet_mocked(service, monkeypatch):
+    class MockResponse:
+        status_code = 200
+        text = """Ticker,Employee's Unit,Employer's Unit,Total Value,Currency
+PVDSP500,"8,294.68","6,005.29","205,135.89",THB
+PVDWEQ,"18,919.08","13,853.91","410,227.49",THB
+"""
+
+        def raise_for_status(self):
+            pass
+
+    async def mock_get(url, *args, **kwargs):
+        return MockResponse()
+
+    monkeypatch.setattr(service.client, "get", mock_get)
+
+    res = await service.fetch_sheet("provident-fund")
+    assert res.error is None
+    assert res.totalSymbols == 2
+    assert "THB" in res.totalCostByCurrency
+    assert res.totalLots == 4
+

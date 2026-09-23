@@ -13,6 +13,7 @@ DEFAULT_TARGETS: dict[str, float] = {
     "crypto": 15.0,
     "mutual-fund": 15.0,
     "bond": 0.0,
+    "provident-fund": 0.0,
 }
 
 
