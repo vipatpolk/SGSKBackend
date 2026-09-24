@@ -59,6 +59,11 @@ class AssetTypeDividendSummary(BaseModel):
     percentageOfTotal: float
     symbolCount: int
     recordCount: int
+    totalCostBasis: float = 0.0
+    currentValue: float = 0.0
+    projectedAnnualDividends: float = 0.0
+    yieldOnCostPercent: float = 0.0
+    currentYieldPercent: float = 0.0
 
 
 class SymbolDividendSummary(BaseModel):

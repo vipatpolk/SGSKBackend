@@ -8,7 +8,7 @@ This is the Python **FastAPI** backend for the [ShareLot](https://github.com/vip
 - **FIFO Share Lot Engine**: Computes First-In, First-Out (FIFO) share lots, remaining open positions, cost basis, and realized P/L server-side, with support for mutual fund exchange dispositions (`EX-OUT` and `EX-IN`).
 - **Provident Fund (PVD) Processing**: Automatically parses employee contributions, employee earnings, employer matching, employer earnings, and unit allocations to calculate cost basis, implied NAV, and unrealized returns.
 - **Strict Asset Type Rules**: Identifies Thai Mutual Funds strictly by `.FUND` suffix and Provident Funds by `PVD` prefix / `.PVD` suffix.
-- **100% API-Driven Dividend Engine**: Calculates historical dividend cash flows and forward income projections purely from live API feeds (Yahoo Finance for US & Thai equities and Bonds, SEC Thailand API for Mutual Funds) with exact share balance reconstruction on dividend ex-dates.
+- **100% API-Driven Dividend Engine**: Calculates historical dividend cash flows and forward income projections purely from live API feeds (Yahoo Finance for US & Thai equities and Bonds, SEC Thailand API for Mutual Funds) with exact share balance reconstruction on dividend ex-dates, and per-asset-type Yield on Cost (YOC) and current yield metrics.
 - **Decoupled Architecture**: Encapsulates Google Spreadsheet IDs and GID mappings in `config/sheet_config.py`, allowing the frontend to query endpoints cleanly via tab IDs without exposing raw spreadsheet metadata.
 - **Market Data Proxy**: Fetches and aggregates real-time quotes, exchange rates, and metadata from:
   - **Yahoo Finance** (U.S. Stocks, Thai Stocks via `.BK`, Bonds & Fixed Income ETFs, USD/THB FX rate)
@@ -21,7 +21,7 @@ This is the Python **FastAPI** backend for the [ShareLot](https://github.com/vip
 ### Portfolio & Holdings
 - `GET /portfolio/holdings` — Unified holdings valuation endpoint returning fully calculated open positions, closed positions, lot-level valuations, and portfolio KPI summary metrics in target currency (`THB` or `USD`).
 - `GET /portfolio/performance` — Comprehensive investment returns analytics with dynamic timeframe filtering (`YTD`, `1M`, `3M`, `6M`, `1Y`, `ALL`, or custom date bounds), asset class performance, and Top Gainers / Losers leaderboards.
-- `GET /portfolio/dividend` — 100% API-driven dividend analytics and income tracking endpoint returning ex-date share-weighted historical payouts, withholding taxes (15% US, 10% TH), monthly cashflow breakdowns, Yield on Cost (YOC), and forward projected annual income.
+- `GET /portfolio/dividend` — 100% API-driven dividend analytics and income tracking endpoint returning ex-date share-weighted historical payouts, withholding taxes (15% US, 10% TH), monthly cashflow breakdowns, per-asset-type Yield on Cost (YOC) & current yield metrics, and forward projected annual income.
 - `POST /portfolio/allocation` — Target asset allocation and rebalancing engine calculating actual vs target weights, actionable monetary buy/sell deltas, currency exposure (USD vs THB), and concentration weights.
 
 ### Share Lot & Transactions

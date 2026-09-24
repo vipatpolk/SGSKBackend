@@ -152,7 +152,16 @@ class DividendService:
         monthly_map: dict[str, dict[str, Any]] = {}
         annual_map: dict[int, dict[str, Any]] = {}
         asset_type_map: dict[str, dict[str, Any]] = {
-            at: {"gross": 0.0, "net": 0.0, "wht": 0.0, "symbols": set(), "records": 0}
+            at: {
+                "gross": 0.0,
+                "net": 0.0,
+                "wht": 0.0,
+                "symbols": set(),
+                "records": 0,
+                "costBasis": 0.0,
+                "currentValue": 0.0,
+                "projectedDividends": 0.0,
+            }
             for at in DIVIDEND_ASSET_TYPES
         }
 
@@ -394,6 +403,13 @@ class DividendService:
             entry.projectedAnnualIncome = conv_proj_income
             entry.recentDistributions = recent_dists
 
+            # Accumulate totals for per-asset-type Yield on Cost & Current Yield
+            if asset_type in asset_type_map:
+                asset_type_map[asset_type]["costBasis"] += cost_basis
+                asset_type_map[asset_type]["currentValue"] += val
+                asset_type_map[asset_type]["projectedDividends"] += conv_proj_income
+                asset_type_map[asset_type]["symbols"].add(sym)
+
         # Sort records chronologically descending (newest first)
         records.sort(key=lambda x: x.date, reverse=True)
 
@@ -406,6 +422,11 @@ class DividendService:
         for at_key in DIVIDEND_ASSET_TYPES:
             at_data = asset_type_map[at_key]
             pct = (at_data["net"] / total_net_dividends * 100.0) if total_net_dividends > 0 else 0.0
+            cost_b = at_data["costBasis"]
+            curr_v = at_data["currentValue"]
+            proj_d = at_data["projectedDividends"]
+            at_yoc = (proj_d / cost_b * 100.0) if cost_b > 0 else 0.0
+            at_yield = (proj_d / curr_v * 100.0) if curr_v > 0 else 0.0
             asset_type_summaries.append(
                 AssetTypeDividendSummary(
                     assetType=at_key,
@@ -416,6 +437,11 @@ class DividendService:
                     percentageOfTotal=pct,
                     symbolCount=len(at_data["symbols"]),
                     recordCount=at_data["records"],
+                    totalCostBasis=cost_b,
+                    currentValue=curr_v,
+                    projectedAnnualDividends=proj_d,
+                    yieldOnCostPercent=at_yoc,
+                    currentYieldPercent=at_yield,
                 )
             )
 

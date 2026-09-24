@@ -201,8 +201,38 @@ async def test_dividend_service_calculation(mock_valuation_service, mock_price_s
     asset_types = {at.assetType for at in res.assetTypeSummaries}
     assert "thai-stock" in asset_types
     assert "us-stock" in asset_types
+    assert "mutual-fund" in asset_types
     assert "bond" in asset_types
     assert "crypto" not in asset_types
+
+    # Verify per-asset-type Yield on Cost calculations
+    thai_at = next(at for at in res.assetTypeSummaries if at.assetType == "thai-stock")
+    assert thai_at.totalCostBasis == 35000.0
+    assert thai_at.currentValue == 38000.0
+    assert thai_at.projectedAnnualDividends == pytest.approx(2600.0)
+    assert thai_at.yieldOnCostPercent == pytest.approx((2600.0 / 35000.0) * 100.0)
+    assert thai_at.currentYieldPercent == pytest.approx((2600.0 / 38000.0) * 100.0)
+
+    us_at = next(at for at in res.assetTypeSummaries if at.assetType == "us-stock")
+    assert us_at.totalCostBasis == 65000.0
+    assert us_at.currentValue == 70000.0
+    assert us_at.projectedAnnualDividends == pytest.approx(350.0)
+    assert us_at.yieldOnCostPercent == pytest.approx((350.0 / 65000.0) * 100.0)
+    assert us_at.currentYieldPercent == pytest.approx((350.0 / 70000.0) * 100.0)
+
+    fund_at = next(at for at in res.assetTypeSummaries if at.assetType == "mutual-fund")
+    assert fund_at.totalCostBasis == 10000.0
+    assert fund_at.currentValue == 11000.0
+    assert fund_at.projectedAnnualDividends == pytest.approx(250.0)
+    assert fund_at.yieldOnCostPercent == pytest.approx((250.0 / 10000.0) * 100.0)
+    assert fund_at.currentYieldPercent == pytest.approx((250.0 / 11000.0) * 100.0)
+
+    bond_at = next(at for at in res.assetTypeSummaries if at.assetType == "bond")
+    assert bond_at.totalCostBasis == 0.0
+    assert bond_at.currentValue == 0.0
+    assert bond_at.projectedAnnualDividends == 0.0
+    assert bond_at.yieldOnCostPercent == 0.0
+    assert bond_at.currentYieldPercent == 0.0
 
     # Check Yield on Cost (YOC) calculation
     ptt_sum = next(s for s in res.symbolSummaries if s.symbol == "PTT.BK")
