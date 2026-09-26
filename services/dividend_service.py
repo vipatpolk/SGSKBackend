@@ -34,6 +34,74 @@ YAHOO_DIVIDEND_ASSET_TYPES: tuple[str, ...] = ("us-stock", "thai-stock", "bond")
 DIVIDEND_ASSET_TYPES: tuple[str, ...] = ("us-stock", "thai-stock", "mutual-fund", "bond")
 
 
+def get_tx_share_change(tx: Transaction) -> float:
+    """Calculate signed share balance impact of a transaction.
+
+    Dividends do not alter share balance. Outflows (SELL, EXCHANGE_OUT)
+    reduce share balance regardless of quantity column sign convention.
+    Inflows (BUY, EXCHANGE_IN) increase share balance.
+    """
+    if tx.txType and any(kw in tx.txType.upper() for kw in ["DIVIDEND", "DIV", "INCOME", "DISTRIBUTION"]):
+        return 0.0
+
+    is_outflow = False
+    if tx.exchangeTo:
+        is_outflow = True
+    elif tx.txType:
+        tt = tx.txType.upper()
+        if any(
+            kw in tt
+            for kw in [
+                "SELL",
+                "EXCHANGE_OUT",
+                "EXCHANGE OUT",
+                "EXCHNAGE OUT",
+                "SWITCH_OUT",
+                "SWITCH OUT",
+                "EX-OUT",
+                "SW-OUT",
+            ]
+        ):
+            is_outflow = True
+
+    is_inflow = False
+    if tx.exchangeFrom:
+        is_inflow = True
+    elif tx.txType:
+        tt = tx.txType.upper()
+        if any(
+            kw in tt
+            for kw in [
+                "BUY",
+                "EXCHANGE_IN",
+                "EXCHANGE IN",
+                "EXCHNAGE IN",
+                "SWITCH_IN",
+                "SWITCH IN",
+                "EX-IN",
+                "SW-IN",
+            ]
+        ):
+            is_inflow = True
+
+    qty = abs(tx.quantity)
+    if is_outflow:
+        return -qty
+    if is_inflow:
+        return qty
+    return tx.quantity
+
+
+def calculate_shares_on_date(txs: list[Transaction], snapshot_date: str) -> float:
+    """Calculate cumulative shares held strictly before snapshot_date (ex-dividend / book close date).
+
+    Entitlement to dividends requires shares to be held prior to the ex-dividend date.
+    Transactions executed on or after the ex-date do not affect the dividend eligibility snapshot.
+    """
+    total = sum(get_tx_share_change(tx) for tx in txs if tx.date < snapshot_date)
+    return round(total, 6)
+
+
 class DividendService:
     def __init__(
         self,
@@ -167,8 +235,14 @@ class DividendService:
 
         # Process all positions purely from API dividend feeds with exact historical share balances
         all_positions = open_positions + closed_positions
-
+        seen_syms: set[str] = set()
+        unique_positions = []
         for pos in all_positions:
+            if pos.symbol not in seen_syms:
+                seen_syms.add(pos.symbol)
+                unique_positions.append(pos)
+
+        for pos in unique_positions:
             sym = pos.symbol
             asset_type = pos.assetType
             if asset_type == "crypto":
@@ -176,8 +250,10 @@ class DividendService:
 
             curr = pos.originalCurrency
 
-            # Gather API distribution events
-            events: list[tuple[str, float]] = []
+            # Gather API distribution events: (payout_date, snapshot_date, dps)
+            events: list[tuple[str, str, float]] = []
+            seen_events: set[tuple[str, str, float]] = set()
+
             if asset_type in YAHOO_DIVIDEND_ASSET_TYPES:
                 stock_res = stock_div_data.get(sym, {})
                 for evt in stock_res.get("dividends", []):
@@ -185,28 +261,38 @@ class DividendService:
                     ts = evt.get("date")
                     dt_str = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d") if ts else ""
                     if dt_str and amt > 0:
-                        events.append((dt_str, amt))
+                        evt_key = (dt_str, dt_str, amt)
+                        if evt_key not in seen_events:
+                            seen_events.add(evt_key)
+                            events.append(evt_key)
             elif asset_type == "mutual-fund":
                 raw_dists = fund_div_data.get(sym, [])
                 for d_item in raw_dists:
                     d_val = float(d_item.get("dividend_value", 0.0))
-                    d_date = str(d_item.get("dividend_date", "")).split(" ")[0]
-                    if d_date and d_val > 0:
-                        events.append((d_date, d_val))
+                    b_date = str(d_item.get("book_close_date", "")).split(" ")[0].strip()
+                    d_date = str(d_item.get("dividend_date", "")).split(" ")[0].strip()
+                    payout_date = d_date or b_date
+                    snapshot_date = b_date or d_date
+                    if payout_date and d_val > 0:
+                        evt_key = (payout_date, snapshot_date, d_val)
+                        if evt_key not in seen_events:
+                            seen_events.add(evt_key)
+                            events.append(evt_key)
 
             wht_rate = WHT_RATES.get(asset_type, 0.15 if asset_type == "us-stock" else 0.10)
 
-            for idx, (m_date, m_dps) in enumerate(events):
-                # Calculate exact cumulative shares held on dividend ex-date m_date
+            for idx, (payout_date, snapshot_date, m_dps) in enumerate(events):
+                # Calculate exact cumulative shares held on snapshot date (book close date for funds, ex-date for stocks)
                 if sym in txs_by_sym:
-                    shares_on_date = sum(tx.quantity for tx in txs_by_sym[sym] if tx.date <= m_date)
+                    shares_on_date = calculate_shares_on_date(txs_by_sym[sym], snapshot_date)
                 else:
                     shares_on_date = getattr(pos, "totalShares", 0.0) or getattr(pos, "closedShares", 0.0)
 
                 if abs(shares_on_date) < 1e-6 or shares_on_date <= 0:
-                    # User did NOT hold any shares on this dividend date
+                    # User did NOT hold any shares on this dividend snapshot date
                     continue
 
+                shares_on_date = round(shares_on_date, 6)
                 m_gross = shares_on_date * m_dps
                 m_wht = m_gross * wht_rate
                 m_net = m_gross - m_wht
@@ -215,10 +301,11 @@ class DividendService:
                 m_conv_wht = convert_currency(m_wht, curr, target_currency, exchange_rate)
 
                 rec = DividendRecord(
-                    id=f"api-{sym}-{m_date}-{idx + 1}",
+                    id=f"api-{sym}-{payout_date}-{idx + 1}",
                     symbol=sym,
                     displaySymbol=display_symbol(sym),
-                    date=m_date,
+                    date=payout_date,
+                    recordDate=snapshot_date if snapshot_date != payout_date else None,
                     assetType=asset_type,
                     assetTypeLabel=get_asset_type_label(asset_type),
                     shares=shares_on_date,
@@ -235,9 +322,9 @@ class DividendService:
                 records.append(rec)
 
                 # Monthly Aggregation
-                ym = m_date[:7] if len(m_date) >= 7 else "Unknown"
-                year = int(m_date[:4]) if len(m_date) >= 4 and m_date[:4].isdigit() else 0
-                month = int(m_date[5:7]) if len(m_date) >= 7 and m_date[5:7].isdigit() else 0
+                ym = payout_date[:7] if len(payout_date) >= 7 else "Unknown"
+                year = int(payout_date[:4]) if len(payout_date) >= 4 and payout_date[:4].isdigit() else 0
+                month = int(payout_date[5:7]) if len(payout_date) >= 7 and payout_date[5:7].isdigit() else 0
 
                 if ym not in monthly_map:
                     monthly_map[ym] = {
@@ -301,8 +388,8 @@ class DividendService:
                         convertedGrossDividends=0.0,
                         convertedWithholdingTax=0.0,
                         dividendCount=0,
-                        firstDividendDate=m_date,
-                        lastDividendDate=m_date,
+                        firstDividendDate=payout_date,
+                        lastDividendDate=payout_date,
                     )
 
                 sym_s = symbol_summary_map[sym]
@@ -313,10 +400,10 @@ class DividendService:
                 sym_s.convertedNetDividends += m_conv_net
                 sym_s.convertedWithholdingTax += m_conv_wht
                 sym_s.dividendCount += 1
-                if not sym_s.firstDividendDate or m_date < sym_s.firstDividendDate:
-                    sym_s.firstDividendDate = m_date
-                if not sym_s.lastDividendDate or m_date > sym_s.lastDividendDate:
-                    sym_s.lastDividendDate = m_date
+                if not sym_s.firstDividendDate or payout_date < sym_s.firstDividendDate:
+                    sym_s.firstDividendDate = payout_date
+                if not sym_s.lastDividendDate or payout_date > sym_s.lastDividendDate:
+                    sym_s.lastDividendDate = payout_date
 
         # Enrich Symbol Summaries with Open Positions, Market Yields, and Forward Projections
         projected_annual_total = 0.0
@@ -339,22 +426,57 @@ class DividendService:
 
             if asset_type == "mutual-fund":
                 raw_dists = fund_div_data.get(sym, [])
+                now_dt = datetime.now(timezone.utc)
+                one_year_ago_str = (now_dt.replace(year=now_dt.year - 1)).strftime("%Y-%m-%d")
+
+                seen_dist_keys = set()
+                parsed_dists: list[dict[str, Any]] = []
                 for d in raw_dists:
                     d_val = float(d.get("dividend_value", 0.0))
-                    d_date = str(d.get("dividend_date", ""))
-                    b_date = str(d.get("book_close_date", ""))
+                    d_date = str(d.get("dividend_date", "")).split(" ")[0].strip()
+                    b_date = str(d.get("book_close_date", "")).split(" ")[0].strip()
+                    p_id = d.get("proj_id", "")
+                    dist_key = (p_id, b_date, d_date, d_val)
+                    if dist_key in seen_dist_keys:
+                        continue
+                    seen_dist_keys.add(dist_key)
+                    parsed_dists.append({
+                        "proj_id": p_id,
+                        "class_abbr_name": d.get("class_abbr_name") or d.get("fund_class_name") or sym,
+                        "book_close_date": b_date,
+                        "dividend_date": d_date,
+                        "dividend_value": d_val,
+                        "last_upd_date": str(d.get("last_upd_date", "")),
+                    })
+
+                dates = [p["dividend_date"] or p["book_close_date"] for p in parsed_dists if (p["dividend_date"] or p["book_close_date"])]
+                if dates:
+                    newest_date = max(dates)
+                    try:
+                        newest_dt = datetime.strptime(newest_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                        newest_one_yr = (newest_dt.replace(year=newest_dt.year - 1)).strftime("%Y-%m-%d")
+                    except Exception:
+                        newest_one_yr = one_year_ago_str
+                    cutoff_str = min(one_year_ago_str, newest_one_yr) if newest_date < one_year_ago_str else one_year_ago_str
+                else:
+                    cutoff_str = one_year_ago_str
+
+                for p in parsed_dists:
                     recent_dists.append(
                         FundDividendDistribution(
-                            projId=d.get("proj_id", ""),
-                            classAbbrName=d.get("class_abbr_name") or d.get("fund_class_name") or sym,
-                            bookCloseDate=b_date.split(" ")[0] if b_date else "",
-                            dividendDate=d_date.split(" ")[0] if d_date else "",
-                            dividendValue=d_val,
-                            lastUpdDate=str(d.get("last_upd_date", "")),
+                            projId=p["proj_id"],
+                            classAbbrName=p["class_abbr_name"],
+                            bookCloseDate=p["book_close_date"],
+                            dividendDate=p["dividend_date"],
+                            dividendValue=p["dividend_value"],
+                            lastUpdDate=p["last_upd_date"],
                         )
                     )
-                    trailing_dps += d_val
-                recent_dists.sort(key=lambda x: x.dividendDate, reverse=True)
+                    ref_d = p["dividend_date"] or p["book_close_date"]
+                    if ref_d and ref_d >= cutoff_str and p["dividend_value"] > 0:
+                        trailing_dps += p["dividend_value"]
+
+                recent_dists.sort(key=lambda x: x.dividendDate or x.bookCloseDate, reverse=True)
             elif asset_type in YAHOO_DIVIDEND_ASSET_TYPES:
                 stock_res = stock_div_data.get(sym, {})
                 trailing_dps = float(stock_res.get("trailing_12m_dps", 0.0))

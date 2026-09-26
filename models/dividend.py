@@ -15,6 +15,7 @@ class DividendRecord(BaseModel):
     symbol: str
     displaySymbol: str
     date: str
+    recordDate: str | None = None
     assetType: str
     assetTypeLabel: str
     shares: float

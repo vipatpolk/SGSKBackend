@@ -3,7 +3,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from models.portfolio import PortfolioHoldingsResponse, PortfolioPosition, PortfolioSummary
+from models.portfolio import (
+    ClosedPortfolioPosition,
+    PortfolioHoldingsResponse,
+    PortfolioPosition,
+    PortfolioSummary,
+)
 from models.transaction import Transaction
 from services.dividend_service import DividendService
 
@@ -351,3 +356,425 @@ async def test_dividend_service_shares_on_ex_date():
     assert r3.grossAmount == 2250.0
     assert r3.withholdingTax == 225.0
     assert r3.netAmount == 2025.0
+
+
+def test_dividend_mutual_fund_book_close_snapshot():
+    """Verify mutual funds snapshot shares on book_close_date, ignoring post-close sales before dividend_date."""
+    service = DividendService()
+
+    pos = PortfolioPosition(
+        symbol="SCBDV.FUND",
+        displaySymbol="SCBDV",
+        name="SCB Dividend Stock Fund",
+        assetType="mutual-fund",
+        assetTypeLabel="Mutual Fund",
+        totalShares=400.0,
+        totalCost=4000.0,
+        averageCost=10.0,
+        currentPrice=12.0,
+        holdingValue=4800.0,
+        unrealizedPL=800.0,
+        unrealizedPLPercent=20.0,
+        currency="THB",
+        originalCurrency="THB",
+        hasPrice=True,
+        lots=[],
+    )
+
+    # User bought 1,000 units on 2025-01-01
+    # Book close date is 2026-04-30 (entitlement snapshot taken on 1,000 units)
+    # User sold 600 units on 2026-05-02 (after book close, before payment)
+    # Dividend payment date is 2026-05-15
+    raw_txs = [
+        Transaction(
+            symbol="SCBDV.FUND",
+            date="2025-01-01",
+            quantity=1000.0,
+            price=10.0,
+            currency="THB",
+            assetType="mutual-fund",
+            txType="BUY",
+        ),
+        Transaction(
+            symbol="SCBDV.FUND",
+            date="2026-05-02",
+            quantity=-600.0,
+            price=11.5,
+            currency="THB",
+            assetType="mutual-fund",
+            txType="SELL",
+        ),
+    ]
+
+    fund_div_data = {
+        "SCBDV.FUND": [
+            {
+                "proj_id": "M0001",
+                "class_abbr_name": "SCBDV",
+                "book_close_date": "2026-04-30",
+                "dividend_date": "2026-05-15",
+                "dividend_value": 0.50,
+            }
+        ]
+    }
+
+    res = service.calculate_dividend_analytics(
+        open_positions=[pos],
+        closed_positions=[],
+        raw_transactions=raw_txs,
+        stock_div_data={},
+        fund_div_data=fund_div_data,
+        exchange_rate=1.0,
+        target_currency="THB",
+        total_portfolio_value=4800.0,
+        total_open_invested=4000.0,
+    )
+
+    assert len(res.records) == 1
+    rec = res.records[0]
+    # Entitlement must be 1,000 units (held on 2026-04-30), NOT 400 units (after 2026-05-02 sell)!
+    assert rec.shares == 1000.0
+    assert rec.date == "2026-05-15"
+    assert rec.recordDate == "2026-04-30"
+    assert rec.dividendPerShare == 0.50
+    assert rec.grossAmount == 500.0
+    assert rec.withholdingTax == 50.0  # 10%
+    assert rec.netAmount == 450.0
+
+
+def test_dividend_cash_and_outflow_tx_types():
+    """Verify that dividend cash rows are ignored for share balance, and positive outflow quantities are subtracted."""
+    service = DividendService()
+
+    pos = PortfolioPosition(
+        symbol="MSFT",
+        displaySymbol="MSFT",
+        name="Microsoft Corporation",
+        assetType="us-stock",
+        assetTypeLabel="U.S. Stock",
+        totalShares=500.0,
+        totalCost=100000.0,
+        averageCost=200.0,
+        currentPrice=400.0,
+        holdingValue=200000.0,
+        unrealizedPL=100000.0,
+        unrealizedPLPercent=100.0,
+        currency="USD",
+        originalCurrency="USD",
+        hasPrice=True,
+        lots=[],
+    )
+
+    # 1. Buy 1000 shares
+    # 2. Recorded dividend cash income of $500 (must NOT be treated as 500 shares!)
+    # 3. Sell 400 shares with positive quantity in CSV (quantity=400, txType="SELL")
+    # 4. Exchange out 100 shares (quantity=100, txType="EXCHANGE_OUT")
+    raw_txs = [
+        Transaction(
+            symbol="MSFT",
+            date="2025-01-01",
+            quantity=1000.0,
+            price=200.0,
+            currency="USD",
+            assetType="us-stock",
+            txType="BUY",
+        ),
+        Transaction(
+            symbol="MSFT",
+            date="2025-03-01",
+            quantity=500.0,
+            price=1.0,
+            currency="USD",
+            assetType="us-stock",
+            txType="DIVIDEND",
+        ),
+        Transaction(
+            symbol="MSFT",
+            date="2025-06-01",
+            quantity=400.0,  # Positive quantity with SELL txType
+            price=220.0,
+            currency="USD",
+            assetType="us-stock",
+            txType="SELL",
+        ),
+        Transaction(
+            symbol="MSFT",
+            date="2025-07-01",
+            quantity=100.0,  # Positive quantity with EXCHANGE_OUT txType
+            price=225.0,
+            currency="USD",
+            assetType="us-stock",
+            txType="EXCHANGE_OUT",
+            exchangeTo="GOOGL",
+        ),
+    ]
+
+    stock_div_data = {
+        "MSFT": {
+            "trailing_12m_dps": 3.0,
+            "dividends": [
+                {"amount": 0.80, "date": int(datetime(2025, 8, 15, tzinfo=timezone.utc).timestamp())},
+            ],
+        }
+    }
+
+    res = service.calculate_dividend_analytics(
+        open_positions=[pos],
+        closed_positions=[],
+        raw_transactions=raw_txs,
+        stock_div_data=stock_div_data,
+        fund_div_data={},
+        exchange_rate=35.0,
+        target_currency="USD",
+        total_portfolio_value=200000.0,
+        total_open_invested=100000.0,
+    )
+
+    assert len(res.records) == 1
+    rec = res.records[0]
+    # Net shares on 2025-08-15: 1000 (buy) + 0 (cash div) - 400 (sell) - 100 (exchange out) = 500
+    assert rec.shares == 500.0
+    assert rec.dividendPerShare == 0.80
+    assert rec.grossAmount == 400.0
+    assert rec.withholdingTax == 60.0  # 15% for US stocks
+    assert rec.netAmount == 340.0
+
+
+def test_dividend_bond_vehicle_calculation():
+    """Verify dividend payout calculation and ledger values for the bond vehicle."""
+    service = DividendService()
+
+    pos = PortfolioPosition(
+        symbol="BND",
+        displaySymbol="BND",
+        name="Vanguard Total Bond Market ETF",
+        assetType="bond",
+        assetTypeLabel="Bond",
+        totalShares=100.0,
+        totalCost=7400.0,
+        averageCost=74.0,
+        currentPrice=75.0,
+        holdingValue=7500.0,
+        unrealizedPL=100.0,
+        unrealizedPLPercent=1.35,
+        currency="USD",
+        originalCurrency="USD",
+        hasPrice=True,
+        lots=[],
+    )
+
+    raw_txs = [
+        Transaction(
+            symbol="BND",
+            date="2025-01-01",
+            quantity=100.0,
+            price=74.0,
+            currency="USD",
+            assetType="bond",
+            txType="BUY",
+        )
+    ]
+
+    stock_div_data = {
+        "BND": {
+            "trailing_12m_dps": 2.5,
+            "dividends": [
+                {"amount": 0.22, "date": int(datetime(2025, 2, 1, tzinfo=timezone.utc).timestamp())},
+                {"amount": 0.23, "date": int(datetime(2025, 3, 1, tzinfo=timezone.utc).timestamp())},
+            ],
+        }
+    }
+
+    res = service.calculate_dividend_analytics(
+        open_positions=[pos],
+        closed_positions=[],
+        raw_transactions=raw_txs,
+        stock_div_data=stock_div_data,
+        fund_div_data={},
+        exchange_rate=35.0,
+        target_currency="THB",
+        total_portfolio_value=7500.0 * 35.0,
+        total_open_invested=7400.0 * 35.0,
+    )
+
+    assert len(res.records) == 2
+    # Verify bond records with 15% WHT rate
+    for r in res.records:
+        assert r.assetType == "bond"
+        assert r.shares == 100.0
+        assert r.withholdingTaxRate == 15.0
+        assert r.grossAmount == pytest.approx(r.dividendPerShare * 100.0)
+        assert r.withholdingTax == pytest.approx(r.grossAmount * 0.15)
+        assert r.netAmount == pytest.approx(r.grossAmount * 0.85)
+        assert r.convertedGrossAmount == pytest.approx(r.grossAmount * 35.0)
+
+    # Check bond asset type summary
+    bond_sum = next(at for at in res.assetTypeSummaries if at.assetType == "bond")
+    assert bond_sum.recordCount == 2
+    assert bond_sum.totalGrossDividends == pytest.approx((22.0 + 23.0) * 35.0)
+    assert bond_sum.totalNetDividends == pytest.approx(((22.0 * 0.85) + (23.0 * 0.85)) * 35.0)
+
+
+def test_dividend_closed_position_history():
+    """Verify closed positions retain dividend payouts earned when open, but not after closing."""
+    service = DividendService()
+
+    closed_pos = ClosedPortfolioPosition(
+        symbol="TSLA",
+        displaySymbol="TSLA",
+        name="Tesla Inc",
+        assetType="us-stock",
+        assetTypeLabel="U.S. Stock",
+        totalShares=0.0,
+        closedShares=100.0,
+        totalCost=20000.0,
+        totalProceeds=25000.0,
+        realizedPL=5000.0,
+        realizedPLPercent=25.0,
+        averageBuyPrice=200.0,
+        averageSellPrice=250.0,
+        currency="USD",
+        originalCurrency="USD",
+        lots=[],
+    )
+
+    # Bought 100 shares on 2024-01-01, Sold 100 shares on 2024-12-31
+    # Dividend 1 on 2024-06-15: Held 100 shares -> earned!
+    # Dividend 2 on 2025-06-15: Held 0 shares -> not earned!
+    raw_txs = [
+        Transaction(
+            symbol="TSLA",
+            date="2024-01-01",
+            quantity=100.0,
+            price=200.0,
+            currency="USD",
+            assetType="us-stock",
+            txType="BUY",
+        ),
+        Transaction(
+            symbol="TSLA",
+            date="2024-12-31",
+            quantity=-100.0,
+            price=250.0,
+            currency="USD",
+            assetType="us-stock",
+            txType="SELL",
+        ),
+    ]
+
+    stock_div_data = {
+        "TSLA": {
+            "trailing_12m_dps": 1.0,
+            "dividends": [
+                {"amount": 1.0, "date": int(datetime(2024, 6, 15, tzinfo=timezone.utc).timestamp())},
+                {"amount": 1.5, "date": int(datetime(2025, 6, 15, tzinfo=timezone.utc).timestamp())},
+            ],
+        }
+    }
+
+    res = service.calculate_dividend_analytics(
+        open_positions=[],
+        closed_positions=[closed_pos],
+        raw_transactions=raw_txs,
+        stock_div_data=stock_div_data,
+        fund_div_data={},
+        exchange_rate=1.0,
+        target_currency="USD",
+    )
+
+    # Only 1 dividend should be recorded (from 2024-06-15)
+    assert len(res.records) == 1
+    assert res.records[0].date == "2024-06-15"
+    assert res.records[0].shares == 100.0
+    assert res.records[0].grossAmount == 100.0
+    assert res.records[0].netAmount == 85.0
+
+
+def test_dividend_shares_held_strictly_before_ex_date():
+    """Verify share snapshot is evaluated strictly before ex-date (buys/sells on ex-date do not affect eligibility)."""
+    service = DividendService()
+
+    pos = PortfolioPosition(
+        symbol="NVDA",
+        displaySymbol="NVDA",
+        name="NVIDIA Corporation",
+        assetType="us-stock",
+        assetTypeLabel="U.S. Stock",
+        totalShares=150.0,
+        totalCost=15000.0,
+        averageCost=100.0,
+        currentPrice=120.0,
+        holdingValue=18000.0,
+        unrealizedPL=3000.0,
+        unrealizedPLPercent=20.0,
+        currency="USD",
+        originalCurrency="USD",
+        hasPrice=True,
+        lots=[],
+    )
+
+    # Ex-dividend date is 2025-06-11
+    # 1. Bought 100 shares on 2025-06-10 (Day before ex-date -> ENTITLED to dividend)
+    # 2. Bought 50 shares on 2025-06-11 (ON ex-date -> NOT entitled to this dividend)
+    # 3. Sold 20 shares on 2025-06-11 (ON ex-date -> Still entitled, does not forfeit dividend)
+    raw_txs = [
+        Transaction(
+            symbol="NVDA",
+            date="2025-06-10",
+            quantity=100.0,
+            price=100.0,
+            currency="USD",
+            assetType="us-stock",
+            txType="BUY",
+        ),
+        Transaction(
+            symbol="NVDA",
+            date="2025-06-11",
+            quantity=50.0,
+            price=105.0,
+            currency="USD",
+            assetType="us-stock",
+            txType="BUY",
+        ),
+        Transaction(
+            symbol="NVDA",
+            date="2025-06-11",
+            quantity=-20.0,
+            price=105.0,
+            currency="USD",
+            assetType="us-stock",
+            txType="SELL",
+        ),
+    ]
+
+    stock_div_data = {
+        "NVDA": {
+            "trailing_12m_dps": 0.40,
+            "dividends": [
+                {"amount": 0.10, "date": int(datetime(2025, 6, 11, tzinfo=timezone.utc).timestamp())},
+            ],
+        }
+    }
+
+    res = service.calculate_dividend_analytics(
+        open_positions=[pos],
+        closed_positions=[],
+        raw_transactions=raw_txs,
+        stock_div_data=stock_div_data,
+        fund_div_data={},
+        exchange_rate=1.0,
+        target_currency="USD",
+        total_portfolio_value=18000.0,
+        total_open_invested=15000.0,
+    )
+
+    assert len(res.records) == 1
+    rec = res.records[0]
+    # Snapshot strictly before ex-date (2025-06-11) is 100.0 shares
+    assert rec.shares == 100.0
+    assert rec.dividendPerShare == 0.10
+    assert rec.grossAmount == 10.0
+    assert rec.withholdingTax == 1.50
+    assert rec.netAmount == 8.50
+
+
